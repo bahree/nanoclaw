@@ -6,6 +6,12 @@ import {
   updateTask,
   deleteTask,
 } from './db.js';
+import {
+  getLastActions,
+  getLastActionWithToolCalls,
+  getActionsForEvent,
+  buildLogReport,
+} from './event-log.js';
 import { GroupQueue } from './group-queue.js';
 import { getActiveSession } from './remote-control.js';
 import { Channel, ScheduledTask } from './types.js';
@@ -38,7 +44,11 @@ function formatTimeUntil(isoDate: string): string {
 
 function formatTaskLine(task: ScheduledTask, index: number): string {
   const status =
-    task.status === 'active' ? '' : task.status === 'paused' ? ' [paused]' : ' [done]';
+    task.status === 'active'
+      ? ''
+      : task.status === 'paused'
+        ? ' [paused]'
+        : ' [done]';
   const schedule =
     task.schedule_type === 'cron'
       ? `cron: ${task.schedule_value}`
@@ -156,7 +166,10 @@ export function buildTasksStatus(): string {
     return 'No scheduled tasks.';
   }
 
-  const lines: string[] = [`*Scheduled Tasks (${tasks.length})*`, `────────────────`];
+  const lines: string[] = [
+    `*Scheduled Tasks (${tasks.length})*`,
+    `────────────────`,
+  ];
 
   const activeTasks = tasks.filter((t) => t.status === 'active');
   const pausedTasks = tasks.filter((t) => t.status === 'paused');
@@ -234,6 +247,199 @@ export function handleTaskCommand(
       };
 
     default:
-      return { ok: false, error: `Unknown action: ${action}. Use pause, resume, or delete.` };
+      return {
+        ok: false,
+        error: `Unknown action: ${action}. Use pause, resume, or delete.`,
+      };
   }
+}
+
+export function handleDebugCommand(
+  args: string,
+): { ok: true; message: string } | { ok: false; error: string } {
+  const parts = args.trim().split(/\s+/);
+  const subcommand = parts[0]?.toLowerCase();
+
+  if (subcommand === 'last') {
+    const n = parseInt(parts[1], 10) || 10;
+    const results = getLastActions(Math.min(n, 50));
+    if (results.length === 0) {
+      return { ok: true, message: 'No actions logged yet.' };
+    }
+
+    const lines: string[] = [`*Last ${results.length} Actions*`, `────────────────`];
+    for (const { action, event } of results) {
+      const trigger = event
+        ? `${event.source}${event.summary ? ': ' + event.summary : ''}`
+        : 'unknown';
+      const content = action.content
+        ? action.content.slice(0, 80) + (action.content.length > 80 ? '...' : '')
+        : '';
+      lines.push(
+        `\n*${action.action_type}* → ${action.target || 'n/a'}`,
+        `  ${formatTimeAgo(action.timestamp)}`,
+        `  Trigger: ${trigger}`,
+        content ? `  Content: ${content}` : '',
+      );
+    }
+
+    return { ok: true, message: lines.filter(Boolean).join('\n') };
+  }
+
+  if (subcommand === 'why') {
+    const result = getLastActionWithToolCalls();
+    if (!result) {
+      return { ok: true, message: 'No actions logged yet.' };
+    }
+
+    const { action, event, toolCalls } = result;
+    const lines: string[] = [`*Most Recent Action*`, `────────────────`];
+
+    if (event) {
+      lines.push(
+        `*Event:* ${event.source} (${event.source_id || 'n/a'})`,
+        `  ${event.summary || 'no summary'}`,
+        `  ${formatTimeAgo(event.timestamp)}`,
+        `  ID: ${event.id}`,
+      );
+    }
+
+    lines.push(
+      '',
+      `*Action:* ${action.action_type}`,
+      `  Target: ${action.target || 'n/a'}`,
+      `  ${formatTimeAgo(action.timestamp)}`,
+    );
+    if (action.content) {
+      lines.push(`  Content: ${action.content.slice(0, 200)}`);
+    }
+
+    if (toolCalls.length > 0) {
+      lines.push('', `*Tool Calls (${toolCalls.length}):*`);
+      for (const tc of toolCalls) {
+        const status = tc.success ? 'ok' : 'FAILED';
+        lines.push(`  ${tc.tool_name} (${tc.duration_ms}ms, ${status})`);
+      }
+    }
+
+    return { ok: true, message: lines.join('\n') };
+  }
+
+  if (subcommand === 'event') {
+    const eventId = parts.slice(1).join(' ');
+    if (!eventId) {
+      return { ok: false, error: 'Usage: /debug event <id>' };
+    }
+
+    const result = getActionsForEvent(eventId);
+    if (!result.event) {
+      return { ok: false, error: `Event not found: ${eventId}` };
+    }
+
+    const lines: string[] = [`*Event Details*`, `────────────────`];
+    lines.push(
+      `*Source:* ${result.event.source} (${result.event.source_id || 'n/a'})`,
+      `*Summary:* ${result.event.summary || 'none'}`,
+      `*Time:* ${formatTimeAgo(result.event.timestamp)}`,
+      `*ID:* ${result.event.id}`,
+    );
+
+    if (result.actions.length === 0) {
+      lines.push('', 'No actions triggered by this event.');
+    } else {
+      lines.push('', `*Actions (${result.actions.length}):*`);
+      for (const { action, toolCalls } of result.actions) {
+        lines.push(
+          `\n  *${action.action_type}* → ${action.target || 'n/a'}`,
+          `    ${formatTimeAgo(action.timestamp)}`,
+        );
+        if (toolCalls.length > 0) {
+          for (const tc of toolCalls) {
+            const status = tc.success ? 'ok' : 'FAILED';
+            lines.push(`    └ ${tc.tool_name} (${tc.duration_ms}ms, ${status})`);
+          }
+        }
+      }
+    }
+
+    return { ok: true, message: lines.join('\n') };
+  }
+
+  if (subcommand === 'report') {
+    const report = buildLogReport();
+    const lines: string[] = [
+      `*Event Log Report*`,
+      `────────────────`,
+      `Retention: ${report.retentionDays} days`,
+      `Period: ${formatTimeAgo(report.period.from).replace(' ago', '')} → now`,
+      '',
+      `*Table Sizes:*`,
+      `  Events: ${report.tableSizes.events}`,
+      `  Actions: ${report.tableSizes.actions}`,
+      `  Tool Calls: ${report.tableSizes.toolCalls}`,
+    ];
+
+    if (report.eventsBySource.length > 0) {
+      lines.push('', `*Events by Source:*`);
+      for (const { source, count } of report.eventsBySource) {
+        lines.push(`  ${source}: ${count}`);
+      }
+    }
+
+    if (report.actionsByType.length > 0) {
+      lines.push('', `*Actions by Type:*`);
+      for (const { action_type, count } of report.actionsByType) {
+        lines.push(`  ${action_type}: ${count}`);
+      }
+    }
+
+    if (report.busiestHours.length > 0) {
+      lines.push('', `*Busiest Hours:*`);
+      const top5 = report.busiestHours.slice(0, 5);
+      for (const { hour, count } of top5) {
+        lines.push(`  ${hour}: ${count} events`);
+      }
+    }
+
+    if (report.failedToolCalls.length > 0) {
+      lines.push('', `*Recent Failed Tool Calls:*`);
+      for (const tc of report.failedToolCalls) {
+        lines.push(
+          `  ${tc.tool_name} (${tc.duration_ms}ms) ${formatTimeAgo(tc.timestamp)}`,
+          `    ${(tc.output || 'no output').slice(0, 100)}`,
+        );
+      }
+    }
+
+    if (report.recentErrors.length > 0) {
+      lines.push('', `*Recent Errors:*`);
+      for (const err of report.recentErrors) {
+        const trigger = err.event_summary || 'unknown trigger';
+        lines.push(
+          `  ${err.action_type} → ${err.target || 'n/a'} (${formatTimeAgo(err.timestamp)})`,
+          `    Trigger: ${trigger}`,
+        );
+      }
+    }
+
+    if (
+      report.failedToolCalls.length === 0 &&
+      report.recentErrors.length === 0
+    ) {
+      lines.push('', 'No errors or failed tool calls.');
+    }
+
+    return { ok: true, message: lines.join('\n') };
+  }
+
+  return {
+    ok: false,
+    error: [
+      'Usage:',
+      '  /debug last <n> — show last n actions',
+      '  /debug why — show most recent action with tool calls',
+      '  /debug event <id> — show all actions for an event',
+      '  /debug report — summary report with stats and errors',
+    ].join('\n'),
+  };
 }

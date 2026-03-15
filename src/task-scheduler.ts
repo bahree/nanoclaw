@@ -18,6 +18,7 @@ import {
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
+import { logEvent, logAction } from './event-log.js';
 import { logger } from './logger.js';
 import { RegisteredGroup, ScheduledTask } from './types.js';
 
@@ -108,6 +109,13 @@ async function runTask(
     'Running scheduled task',
   );
 
+  const eventId = logEvent(
+    'scheduled_task',
+    task.id,
+    { prompt: task.prompt.slice(0, 200), schedule: task.schedule_type },
+    `Scheduled task: ${task.prompt.slice(0, 80)}`,
+  );
+
   const groups = deps.registeredGroups();
   const group = Object.values(groups).find(
     (g) => g.folder === task.group_folder,
@@ -187,6 +195,7 @@ async function runTask(
           result = streamedOutput.result;
           // Forward result to user (sendMessage handles formatting)
           await deps.sendMessage(task.chat_jid, streamedOutput.result);
+          logAction(eventId, 'message_sent', task.chat_jid, result?.slice(0, 500) ?? null);
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {

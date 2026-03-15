@@ -50,7 +50,13 @@ import {
   startRemoteControl,
   stopRemoteControl,
 } from './remote-control.js';
-import { buildStatus, buildTasksStatus, handleTaskCommand } from './status.js';
+import {
+  buildStatus,
+  buildTasksStatus,
+  handleDebugCommand,
+  handleTaskCommand,
+} from './status.js';
+import { logEvent, logAction, startLogPruning } from './event-log.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -196,6 +202,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     'Processing messages',
   );
 
+  // Log the processing event for tracing
+  const eventId = logEvent(
+    'message_batch',
+    chatJid,
+    { messageCount: missedMessages.length, group: group.name },
+    `Processing ${missedMessages.length} message(s) for ${group.name}`,
+  );
+
   // Track idle timer for closing stdin when agent is idle
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -235,6 +249,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         if (text) {
           await channel.sendMessage(chatJid, text);
           outputSentToUser = true;
+          logAction(eventId, 'message_sent', chatJid, text.slice(0, 500));
         }
         // Only reset idle timer on actual results, not session-update markers (result: null)
         resetIdleTimer();
@@ -491,6 +506,7 @@ async function main(): Promise<void> {
   ensureContainerSystemRunning();
   initDatabase();
   logger.info('Database initialized');
+  startLogPruning();
   loadState();
   restoreRemoteControl();
 
@@ -597,7 +613,35 @@ async function main(): Promise<void> {
 
     const args = msg.content.trim().slice('/task '.length);
     const result = handleTaskCommand(args);
-    await channel.sendMessage(chatJid, result.ok ? result.message : result.error);
+    await channel.sendMessage(
+      chatJid,
+      result.ok ? result.message : result.error,
+    );
+  }
+
+  // Handle /debug command — main group only
+  async function handleDebugCmd(
+    chatJid: string,
+    msg: NewMessage,
+  ): Promise<void> {
+    const group = registeredGroups[chatJid];
+    if (!group?.isMain) {
+      logger.warn(
+        { chatJid, sender: msg.sender },
+        'Debug command rejected: not main group',
+      );
+      return;
+    }
+
+    const channel = findChannel(channels, chatJid);
+    if (!channel) return;
+
+    const args = msg.content.trim().slice('/debug'.length).trim();
+    const result = handleDebugCommand(args);
+    await channel.sendMessage(
+      chatJid,
+      result.ok ? result.message : result.error,
+    );
   }
 
   // Channel callbacks (shared by all channels)
@@ -623,6 +667,12 @@ async function main(): Promise<void> {
         );
         return;
       }
+      if (trimmed.startsWith('/debug')) {
+        handleDebugCmd(chatJid, msg).catch((err) =>
+          logger.error({ err, chatJid }, 'Debug command error'),
+        );
+        return;
+      }
 
       // Sender allowlist drop mode: discard messages from denied senders before storing
       if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
@@ -640,6 +690,19 @@ async function main(): Promise<void> {
           return;
         }
       }
+      // Log the inbound event (fire-and-forget)
+      const evtChannel = chatJid.includes('@g.us') || chatJid.includes('@s.whatsapp.net')
+        ? 'whatsapp'
+        : chatJid.startsWith('tg:') ? 'telegram'
+        : chatJid.startsWith('dc:') ? 'discord'
+        : chatJid.startsWith('sl:') ? 'slack'
+        : 'channel';
+      logEvent(
+        evtChannel,
+        msg.id,
+        { sender: msg.sender_name, content: msg.content?.slice(0, 200) },
+        `Message from ${msg.sender_name}: ${(msg.content || '').slice(0, 80)}`,
+      );
       storeMessage(msg);
     },
     onChatMetadata: (

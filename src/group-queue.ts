@@ -366,7 +366,11 @@ export class GroupQueue {
       pendingTaskCount: number;
     }> = [];
     for (const [jid, state] of this.groups) {
-      if (state.active || state.pendingMessages || state.pendingTasks.length > 0) {
+      if (
+        state.active ||
+        state.pendingMessages ||
+        state.pendingTasks.length > 0
+      ) {
         groups.push({
           jid,
           active: state.active,
