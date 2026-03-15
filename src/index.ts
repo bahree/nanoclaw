@@ -437,9 +437,13 @@ async function startMessageLoop(): Promise<void> {
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
             );
-            lastAgentTimestamp[chatJid] =
-              messagesToSend[messagesToSend.length - 1].timestamp;
-            saveState();
+            // Don't advance lastAgentTimestamp here — the cursor should only
+            // advance when processGroupMessages actually starts processing.
+            // If the container dies (restart, crash) before handling the piped
+            // messages, recoverPendingMessages will find them on next startup.
+            // The next processGroupMessages call will re-include these messages
+            // as context, which is safe with session continuity.
+
             // Show typing indicator while the container processes the piped message
             channel
               .setTyping?.(chatJid, true)
