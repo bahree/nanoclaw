@@ -1,0 +1,239 @@
+import { ASSISTANT_NAME, TIMEZONE } from './config.js';
+import {
+  getAllRegisteredGroups,
+  getAllTasks,
+  getTaskById,
+  updateTask,
+  deleteTask,
+} from './db.js';
+import { GroupQueue } from './group-queue.js';
+import { getActiveSession } from './remote-control.js';
+import { Channel, ScheduledTask } from './types.js';
+
+const startTime = Date.now();
+
+function formatDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days}d ${hours % 24}h ${minutes % 60}m`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+  return `${seconds}s`;
+}
+
+function formatTimeAgo(isoDate: string): string {
+  const ms = Date.now() - new Date(isoDate).getTime();
+  if (ms < 0) return 'just now';
+  return formatDuration(ms) + ' ago';
+}
+
+function formatTimeUntil(isoDate: string): string {
+  const ms = new Date(isoDate).getTime() - Date.now();
+  if (ms < 0) return 'overdue';
+  return 'in ' + formatDuration(ms);
+}
+
+function formatTaskLine(task: ScheduledTask, index: number): string {
+  const status =
+    task.status === 'active' ? '' : task.status === 'paused' ? ' [paused]' : ' [done]';
+  const schedule =
+    task.schedule_type === 'cron'
+      ? `cron: ${task.schedule_value}`
+      : task.schedule_type === 'interval'
+        ? `every ${task.schedule_value}`
+        : `once`;
+  const prompt =
+    task.prompt.length > 50 ? task.prompt.slice(0, 50) + '...' : task.prompt;
+  const next = task.next_run ? formatTimeUntil(task.next_run) : 'n/a';
+  const lastRun = task.last_run ? formatTimeAgo(task.last_run) : 'never';
+
+  return [
+    `*${index + 1}.* ${prompt}${status}`,
+    `   Schedule: ${schedule}`,
+    `   Next: ${next} | Last: ${lastRun}`,
+    `   ID: ${task.id}`,
+  ].join('\n');
+}
+
+export function buildStatus(queue: GroupQueue, channels: Channel[]): string {
+  const uptime = formatDuration(Date.now() - startTime);
+  const mem = Math.round(process.memoryUsage.rss() / 1024 / 1024);
+
+  // Queue status
+  const qs = queue.getStatus();
+
+  // Channels
+  const channelNames = channels.map((ch) => ch.name).join(', ');
+
+  // Registered groups
+  const groups = getAllRegisteredGroups();
+  const groupEntries = Object.entries(groups);
+
+  // Tasks
+  const tasks = getAllTasks();
+  const activeTasks = tasks.filter((t) => t.status === 'active');
+  const pausedTasks = tasks.filter((t) => t.status === 'paused');
+
+  // Remote control
+  const rc = getActiveSession();
+
+  // Build output
+  const lines: string[] = [
+    `*${ASSISTANT_NAME} Status*`,
+    `────────────────`,
+    `Uptime: ${uptime}`,
+    `Memory: ${mem} MB`,
+    `Timezone: ${TIMEZONE}`,
+    ``,
+    `*Containers:* ${qs.activeCount}/${qs.maxConcurrent} active${qs.waitingCount > 0 ? `, ${qs.waitingCount} waiting` : ''}`,
+    `*Channels:* ${channelNames || 'none'}`,
+  ];
+
+  // Active containers detail
+  if (qs.groups.length > 0) {
+    lines.push('');
+    for (const g of qs.groups) {
+      const groupName = groups[g.jid]?.name || g.jid;
+      const state = g.active
+        ? g.idleWaiting
+          ? 'idle'
+          : g.isTaskContainer
+            ? 'running task'
+            : 'processing'
+        : 'queued';
+      const pending: string[] = [];
+      if (g.pendingMessages) pending.push('msgs pending');
+      if (g.pendingTaskCount > 0)
+        pending.push(`${g.pendingTaskCount} tasks pending`);
+      const extra = pending.length > 0 ? ` (${pending.join(', ')})` : '';
+      lines.push(`  ${groupName}: ${state}${extra}`);
+    }
+  }
+
+  // Groups
+  lines.push('');
+  lines.push(`*Groups (${groupEntries.length}):*`);
+  for (const [_jid, group] of groupEntries) {
+    const main = group.isMain ? ' [main]' : '';
+    lines.push(`  ${group.name}${main}`);
+  }
+
+  // Tasks summary
+  if (tasks.length > 0) {
+    lines.push('');
+    lines.push(
+      `*Tasks:* ${activeTasks.length} active${pausedTasks.length > 0 ? `, ${pausedTasks.length} paused` : ''}`,
+    );
+    const nextTask = activeTasks
+      .filter((t) => t.next_run)
+      .sort((a, b) => (a.next_run! < b.next_run! ? -1 : 1))[0];
+    if (nextTask) {
+      lines.push(
+        `  Next: "${nextTask.prompt.slice(0, 40)}${nextTask.prompt.length > 40 ? '...' : ''}" ${formatTimeUntil(nextTask.next_run!)}`,
+      );
+    }
+    lines.push(`  _Send /status tasks for details_`);
+  }
+
+  // Remote control
+  if (rc) {
+    lines.push('');
+    lines.push(
+      `*Remote Control:* active since ${formatTimeAgo(rc.startedAt).replace(' ago', '')}`,
+    );
+  }
+
+  return lines.join('\n');
+}
+
+export function buildTasksStatus(): string {
+  const tasks = getAllTasks();
+
+  if (tasks.length === 0) {
+    return 'No scheduled tasks.';
+  }
+
+  const lines: string[] = [`*Scheduled Tasks (${tasks.length})*`, `────────────────`];
+
+  const activeTasks = tasks.filter((t) => t.status === 'active');
+  const pausedTasks = tasks.filter((t) => t.status === 'paused');
+  const completedTasks = tasks.filter((t) => t.status === 'completed');
+
+  if (activeTasks.length > 0) {
+    lines.push('');
+    lines.push(`*Active (${activeTasks.length}):*`);
+    activeTasks.forEach((t, i) => lines.push(formatTaskLine(t, i)));
+  }
+
+  if (pausedTasks.length > 0) {
+    lines.push('');
+    lines.push(`*Paused (${pausedTasks.length}):*`);
+    pausedTasks.forEach((t, i) => lines.push(formatTaskLine(t, i)));
+  }
+
+  if (completedTasks.length > 0) {
+    lines.push('');
+    lines.push(`*Completed (${completedTasks.length}):*`);
+    completedTasks.forEach((t, i) => lines.push(formatTaskLine(t, i)));
+  }
+
+  lines.push('');
+  lines.push('_Commands:_');
+  lines.push('/task pause <id>');
+  lines.push('/task resume <id>');
+  lines.push('/task delete <id>');
+
+  return lines.join('\n');
+}
+
+export function handleTaskCommand(
+  args: string,
+): { ok: true; message: string } | { ok: false; error: string } {
+  const parts = args.trim().split(/\s+/);
+  const action = parts[0]?.toLowerCase();
+  const taskId = parts.slice(1).join(' ');
+
+  if (!action || !taskId) {
+    return { ok: false, error: 'Usage: /task <pause|resume|delete> <task-id>' };
+  }
+
+  const task = getTaskById(taskId);
+  if (!task) {
+    return { ok: false, error: `Task not found: ${taskId}` };
+  }
+
+  switch (action) {
+    case 'pause':
+      if (task.status !== 'active') {
+        return { ok: false, error: `Task is already ${task.status}` };
+      }
+      updateTask(taskId, { status: 'paused' });
+      return {
+        ok: true,
+        message: `Paused: "${task.prompt.slice(0, 50)}"`,
+      };
+
+    case 'resume':
+      if (task.status !== 'paused') {
+        return { ok: false, error: `Task is ${task.status}, not paused` };
+      }
+      updateTask(taskId, { status: 'active' });
+      return {
+        ok: true,
+        message: `Resumed: "${task.prompt.slice(0, 50)}"`,
+      };
+
+    case 'delete':
+      deleteTask(taskId);
+      return {
+        ok: true,
+        message: `Deleted: "${task.prompt.slice(0, 50)}"`,
+      };
+
+    default:
+      return { ok: false, error: `Unknown action: ${action}. Use pause, resume, or delete.` };
+  }
+}

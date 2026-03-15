@@ -50,6 +50,7 @@ import {
   startRemoteControl,
   stopRemoteControl,
 } from './remote-control.js';
+import { buildStatus, buildTasksStatus, handleTaskCommand } from './status.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -552,14 +553,73 @@ async function main(): Promise<void> {
     }
   }
 
+  // Handle /status command — main group only
+  async function handleStatus(
+    command: string,
+    chatJid: string,
+    msg: NewMessage,
+  ): Promise<void> {
+    const group = registeredGroups[chatJid];
+    if (!group?.isMain) {
+      logger.warn(
+        { chatJid, sender: msg.sender },
+        'Status rejected: not main group',
+      );
+      return;
+    }
+
+    const channel = findChannel(channels, chatJid);
+    if (!channel) return;
+
+    const text =
+      command === '/status tasks'
+        ? buildTasksStatus()
+        : buildStatus(queue, channels);
+    await channel.sendMessage(chatJid, text);
+  }
+
+  // Handle /task command — main group only
+  async function handleTaskCmd(
+    chatJid: string,
+    msg: NewMessage,
+  ): Promise<void> {
+    const group = registeredGroups[chatJid];
+    if (!group?.isMain) {
+      logger.warn(
+        { chatJid, sender: msg.sender },
+        'Task command rejected: not main group',
+      );
+      return;
+    }
+
+    const channel = findChannel(channels, chatJid);
+    if (!channel) return;
+
+    const args = msg.content.trim().slice('/task '.length);
+    const result = handleTaskCommand(args);
+    await channel.sendMessage(chatJid, result.ok ? result.message : result.error);
+  }
+
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
-      // Remote control commands — intercept before storage
+      // Built-in commands — intercept before storage
       const trimmed = msg.content.trim();
       if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
         handleRemoteControl(trimmed, chatJid, msg).catch((err) =>
           logger.error({ err, chatJid }, 'Remote control command error'),
+        );
+        return;
+      }
+      if (trimmed === '/status' || trimmed === '/status tasks') {
+        handleStatus(trimmed, chatJid, msg).catch((err) =>
+          logger.error({ err, chatJid }, 'Status command error'),
+        );
+        return;
+      }
+      if (trimmed.startsWith('/task ')) {
+        handleTaskCmd(chatJid, msg).catch((err) =>
+          logger.error({ err, chatJid }, 'Task command error'),
         );
         return;
       }
