@@ -3,7 +3,12 @@
  * Re-exports event-log functions and provides thin wrappers for pipeline instrumentation.
  * Import this instead of event-log.ts directly from core files.
  */
-export { logEvent, logAction, logToolCall, startLogPruning } from './event-log.js';
+export {
+  logEvent,
+  logAction,
+  logToolCall,
+  startLogPruning,
+} from './event-log.js';
 import { logEvent } from './event-log.js';
 
 /**

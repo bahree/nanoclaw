@@ -9,10 +9,7 @@ import {
   handleDebugCommand,
   handleTaskCommand,
 } from './status.js';
-import {
-  startRemoteControl,
-  stopRemoteControl,
-} from './remote-control.js';
+import { startRemoteControl, stopRemoteControl } from './remote-control.js';
 import { findChannel } from './router.js';
 import { GroupQueue } from './group-queue.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
@@ -55,9 +52,9 @@ export function tryHandleCommand(
       trimmed === '/status tasks'
         ? buildTasksStatus()
         : buildStatus(ctx.queue, ctx.channels);
-    channel.sendMessage(chatJid, text).catch((err) =>
-      logger.error({ err, chatJid }, 'Status command error'),
-    );
+    channel
+      .sendMessage(chatJid, text)
+      .catch((err) => logger.error({ err, chatJid }, 'Status command error'));
     return true;
   }
 
@@ -101,11 +98,7 @@ async function handleRemoteControlCmd(
   if (!channel) return;
 
   if (command === '/remote-control') {
-    const result = await startRemoteControl(
-      msg.sender,
-      chatJid,
-      process.cwd(),
-    );
+    const result = await startRemoteControl(msg.sender, chatJid, process.cwd());
     if (result.ok) {
       await channel.sendMessage(chatJid, result.url);
     } else {
