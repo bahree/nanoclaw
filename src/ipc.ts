@@ -84,11 +84,20 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   const ipcEventId = logEvent(
                     'ipc',
                     null,
-                    { chatJid: data.chatJid, sourceGroup, text: data.text?.slice(0, 200) },
+                    {
+                      chatJid: data.chatJid,
+                      sourceGroup,
+                      text: data.text?.slice(0, 200),
+                    },
                     `IPC message from ${sourceGroup}`,
                   );
                   await deps.sendMessage(data.chatJid, data.text);
-                  logAction(ipcEventId, 'message_sent', data.chatJid, data.text?.slice(0, 500) ?? null);
+                  logAction(
+                    ipcEventId,
+                    'message_sent',
+                    data.chatJid,
+                    data.text?.slice(0, 500) ?? null,
+                  );
                   logger.info(
                     { chatJid: data.chatJid, sourceGroup },
                     'IPC message sent',
@@ -277,10 +286,17 @@ export async function processTaskIpc(
         const ipcEvtId = logEvent(
           'ipc',
           taskId,
-          { type: 'schedule_task', prompt: data.prompt?.slice(0, 200), sourceGroup },
+          {
+            type: 'schedule_task',
+            prompt: data.prompt?.slice(0, 200),
+            sourceGroup,
+          },
           `Task scheduled via IPC: ${data.prompt?.slice(0, 80)}`,
         );
-        logAction(ipcEvtId, 'task_scheduled', targetFolder, { taskId, scheduleType });
+        logAction(ipcEvtId, 'task_scheduled', targetFolder, {
+          taskId,
+          scheduleType,
+        });
         logger.info(
           { taskId, sourceGroup, targetFolder, contextMode },
           'Task created via IPC',

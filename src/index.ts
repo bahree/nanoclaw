@@ -691,12 +691,16 @@ async function main(): Promise<void> {
         }
       }
       // Log the inbound event (fire-and-forget)
-      const evtChannel = chatJid.includes('@g.us') || chatJid.includes('@s.whatsapp.net')
-        ? 'whatsapp'
-        : chatJid.startsWith('tg:') ? 'telegram'
-        : chatJid.startsWith('dc:') ? 'discord'
-        : chatJid.startsWith('sl:') ? 'slack'
-        : 'channel';
+      const evtChannel =
+        chatJid.includes('@g.us') || chatJid.includes('@s.whatsapp.net')
+          ? 'whatsapp'
+          : chatJid.startsWith('tg:')
+            ? 'telegram'
+            : chatJid.startsWith('dc:')
+              ? 'discord'
+              : chatJid.startsWith('sl:')
+                ? 'slack'
+                : 'channel';
       logEvent(
         evtChannel,
         msg.id,

@@ -145,7 +145,10 @@ export async function logToolCall<T>(
         success ? 1 : 0,
       );
     } catch (logErr) {
-      logger.debug({ err: logErr, toolName, actionId }, 'Failed to log tool call');
+      logger.debug(
+        { err: logErr, toolName, actionId },
+        'Failed to log tool call',
+      );
     }
   }
 }

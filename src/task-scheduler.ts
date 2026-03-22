@@ -195,7 +195,12 @@ async function runTask(
           result = streamedOutput.result;
           // Forward result to user (sendMessage handles formatting)
           await deps.sendMessage(task.chat_jid, streamedOutput.result);
-          logAction(eventId, 'message_sent', task.chat_jid, result?.slice(0, 500) ?? null);
+          logAction(
+            eventId,
+            'message_sent',
+            task.chat_jid,
+            result?.slice(0, 500) ?? null,
+          );
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {

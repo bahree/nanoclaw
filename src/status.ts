@@ -267,13 +267,17 @@ export function handleDebugCommand(
       return { ok: true, message: 'No actions logged yet.' };
     }
 
-    const lines: string[] = [`*Last ${results.length} Actions*`, `────────────────`];
+    const lines: string[] = [
+      `*Last ${results.length} Actions*`,
+      `────────────────`,
+    ];
     for (const { action, event } of results) {
       const trigger = event
         ? `${event.source}${event.summary ? ': ' + event.summary : ''}`
         : 'unknown';
       const content = action.content
-        ? action.content.slice(0, 80) + (action.content.length > 80 ? '...' : '')
+        ? action.content.slice(0, 80) +
+          (action.content.length > 80 ? '...' : '')
         : '';
       lines.push(
         `\n*${action.action_type}* → ${action.target || 'n/a'}`,
@@ -356,7 +360,9 @@ export function handleDebugCommand(
         if (toolCalls.length > 0) {
           for (const tc of toolCalls) {
             const status = tc.success ? 'ok' : 'FAILED';
-            lines.push(`    └ ${tc.tool_name} (${tc.duration_ms}ms, ${status})`);
+            lines.push(
+              `    └ ${tc.tool_name} (${tc.duration_ms}ms, ${status})`,
+            );
           }
         }
       }
