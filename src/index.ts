@@ -45,18 +45,14 @@ import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
+import { restoreRemoteControl } from './remote-control.js';
+import { tryHandleCommand } from './commands.js';
 import {
-  restoreRemoteControl,
-  startRemoteControl,
-  stopRemoteControl,
-} from './remote-control.js';
-import {
-  buildStatus,
-  buildTasksStatus,
-  handleDebugCommand,
-  handleTaskCommand,
-} from './status.js';
-import { logEvent, logAction, startLogPruning } from './event-log.js';
+  logEvent,
+  logAction,
+  logInboundMessage,
+  startLogPruning,
+} from './observability.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -527,152 +523,18 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  // Handle /remote-control and /remote-control-end commands
-  async function handleRemoteControl(
-    command: string,
-    chatJid: string,
-    msg: NewMessage,
-  ): Promise<void> {
-    const group = registeredGroups[chatJid];
-    if (!group?.isMain) {
-      logger.warn(
-        { chatJid, sender: msg.sender },
-        'Remote control rejected: not main group',
-      );
-      return;
-    }
-
-    const channel = findChannel(channels, chatJid);
-    if (!channel) return;
-
-    if (command === '/remote-control') {
-      const result = await startRemoteControl(
-        msg.sender,
-        chatJid,
-        process.cwd(),
-      );
-      if (result.ok) {
-        await channel.sendMessage(chatJid, result.url);
-      } else {
-        await channel.sendMessage(
-          chatJid,
-          `Remote Control failed: ${result.error}`,
-        );
-      }
-    } else {
-      const result = stopRemoteControl();
-      if (result.ok) {
-        await channel.sendMessage(chatJid, 'Remote Control session ended.');
-      } else {
-        await channel.sendMessage(chatJid, result.error);
-      }
-    }
-  }
-
-  // Handle /status command — main group only
-  async function handleStatus(
-    command: string,
-    chatJid: string,
-    msg: NewMessage,
-  ): Promise<void> {
-    const group = registeredGroups[chatJid];
-    if (!group?.isMain) {
-      logger.warn(
-        { chatJid, sender: msg.sender },
-        'Status rejected: not main group',
-      );
-      return;
-    }
-
-    const channel = findChannel(channels, chatJid);
-    if (!channel) return;
-
-    const text =
-      command === '/status tasks'
-        ? buildTasksStatus()
-        : buildStatus(queue, channels);
-    await channel.sendMessage(chatJid, text);
-  }
-
-  // Handle /task command — main group only
-  async function handleTaskCmd(
-    chatJid: string,
-    msg: NewMessage,
-  ): Promise<void> {
-    const group = registeredGroups[chatJid];
-    if (!group?.isMain) {
-      logger.warn(
-        { chatJid, sender: msg.sender },
-        'Task command rejected: not main group',
-      );
-      return;
-    }
-
-    const channel = findChannel(channels, chatJid);
-    if (!channel) return;
-
-    const args = msg.content.trim().slice('/task '.length);
-    const result = handleTaskCommand(args);
-    await channel.sendMessage(
-      chatJid,
-      result.ok ? result.message : result.error,
-    );
-  }
-
-  // Handle /debug command — main group only
-  async function handleDebugCmd(
-    chatJid: string,
-    msg: NewMessage,
-  ): Promise<void> {
-    const group = registeredGroups[chatJid];
-    if (!group?.isMain) {
-      logger.warn(
-        { chatJid, sender: msg.sender },
-        'Debug command rejected: not main group',
-      );
-      return;
-    }
-
-    const channel = findChannel(channels, chatJid);
-    if (!channel) return;
-
-    const args = msg.content.trim().slice('/debug'.length).trim();
-    const result = handleDebugCommand(args);
-    await channel.sendMessage(
-      chatJid,
-      result.ok ? result.message : result.error,
-    );
-  }
+  // Command context for the command router
+  const commandCtx = {
+    registeredGroups: () => registeredGroups,
+    channels,
+    queue,
+  };
 
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
-      // Built-in commands — intercept before storage
-      const trimmed = msg.content.trim();
-      if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
-        handleRemoteControl(trimmed, chatJid, msg).catch((err) =>
-          logger.error({ err, chatJid }, 'Remote control command error'),
-        );
-        return;
-      }
-      if (trimmed === '/status' || trimmed === '/status tasks') {
-        handleStatus(trimmed, chatJid, msg).catch((err) =>
-          logger.error({ err, chatJid }, 'Status command error'),
-        );
-        return;
-      }
-      if (trimmed.startsWith('/task ')) {
-        handleTaskCmd(chatJid, msg).catch((err) =>
-          logger.error({ err, chatJid }, 'Task command error'),
-        );
-        return;
-      }
-      if (trimmed.startsWith('/debug')) {
-        handleDebugCmd(chatJid, msg).catch((err) =>
-          logger.error({ err, chatJid }, 'Debug command error'),
-        );
-        return;
-      }
+      // Built-in commands - intercept before storage
+      if (tryHandleCommand(chatJid, msg, commandCtx)) return;
 
       // Sender allowlist drop mode: discard messages from denied senders before storing
       if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
@@ -690,23 +552,7 @@ async function main(): Promise<void> {
           return;
         }
       }
-      // Log the inbound event (fire-and-forget)
-      const evtChannel =
-        chatJid.includes('@g.us') || chatJid.includes('@s.whatsapp.net')
-          ? 'whatsapp'
-          : chatJid.startsWith('tg:')
-            ? 'telegram'
-            : chatJid.startsWith('dc:')
-              ? 'discord'
-              : chatJid.startsWith('sl:')
-                ? 'slack'
-                : 'channel';
-      logEvent(
-        evtChannel,
-        msg.id,
-        { sender: msg.sender_name, content: msg.content?.slice(0, 200) },
-        `Message from ${msg.sender_name}: ${(msg.content || '').slice(0, 80)}`,
-      );
+      logInboundMessage(chatJid, msg);
       storeMessage(msg);
     },
     onChatMetadata: (

@@ -71,11 +71,3 @@ export const TRIGGER_PATTERN = new RegExp(
 // Uses system timezone by default
 export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-// Event log retention (default 3 days). Set EVENT_LOG_RETENTION_DAYS=0 to disable pruning.
-export const EVENT_LOG_RETENTION_DAYS = Math.max(
-  0,
-  parseInt(process.env.EVENT_LOG_RETENTION_DAYS || '3', 10) || 3,
-);
-// How often to check for expired logs (default: every 60 minutes)
-export const EVENT_LOG_PRUNE_INTERVAL = 60 * 60 * 1000;

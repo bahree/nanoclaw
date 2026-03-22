@@ -83,39 +83,6 @@ function createSchema(database: Database.Database): void {
       requires_trigger INTEGER DEFAULT 1
     );
 
-    CREATE TABLE IF NOT EXISTS event_log (
-      id           TEXT PRIMARY KEY,
-      timestamp    DATETIME DEFAULT CURRENT_TIMESTAMP,
-      source       TEXT NOT NULL,
-      source_id    TEXT,
-      raw_content  TEXT,
-      summary      TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS action_log (
-      id            TEXT PRIMARY KEY,
-      timestamp     DATETIME DEFAULT CURRENT_TIMESTAMP,
-      triggered_by  TEXT REFERENCES event_log(id),
-      action_type   TEXT NOT NULL,
-      target        TEXT,
-      content       TEXT,
-      tool_calls    TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS tool_call_log (
-      id           TEXT PRIMARY KEY,
-      action_id    TEXT REFERENCES action_log(id),
-      timestamp    DATETIME DEFAULT CURRENT_TIMESTAMP,
-      tool_name    TEXT NOT NULL,
-      input        TEXT,
-      output       TEXT,
-      duration_ms  INTEGER,
-      success      INTEGER DEFAULT 1
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_event_log_timestamp ON event_log(timestamp);
-    CREATE INDEX IF NOT EXISTS idx_action_log_triggered_by ON action_log(triggered_by);
-    CREATE INDEX IF NOT EXISTS idx_tool_call_log_action_id ON tool_call_log(action_id);
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)

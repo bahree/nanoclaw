@@ -5,13 +5,16 @@
 import crypto from 'crypto';
 
 import Database from 'better-sqlite3';
-import {
-  EVENT_LOG_PRUNE_INTERVAL,
-  EVENT_LOG_RETENTION_DAYS,
-  TIMEZONE,
-} from './config.js';
+import { TIMEZONE } from './config.js';
 import { getDb } from './db.js';
 import { logger } from './logger.js';
+
+// Self-contained config (no changes needed to config.ts)
+const EVENT_LOG_RETENTION_DAYS = Math.max(
+  0,
+  parseInt(process.env.EVENT_LOG_RETENTION_DAYS || '3', 10) || 3,
+);
+const EVENT_LOG_PRUNE_INTERVAL = 60 * 60 * 1000; // hourly
 
 const MAX_CONTENT_SIZE = 10 * 1024; // 10KB
 
@@ -22,13 +25,54 @@ function truncate(value: unknown): string | null {
   return str;
 }
 
-// Prepared statements (lazily created)
+// Self-initializing schema (no changes needed to db.ts)
+let _schemaInitialized = false;
+
+function ensureSchema(): void {
+  if (_schemaInitialized) return;
+  _schemaInitialized = true;
+  getDb().exec(`
+    CREATE TABLE IF NOT EXISTS event_log (
+      id           TEXT PRIMARY KEY,
+      timestamp    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      source       TEXT NOT NULL,
+      source_id    TEXT,
+      raw_content  TEXT,
+      summary      TEXT
+    );
+    CREATE TABLE IF NOT EXISTS action_log (
+      id            TEXT PRIMARY KEY,
+      timestamp     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      triggered_by  TEXT REFERENCES event_log(id),
+      action_type   TEXT NOT NULL,
+      target        TEXT,
+      content       TEXT,
+      tool_calls    TEXT
+    );
+    CREATE TABLE IF NOT EXISTS tool_call_log (
+      id           TEXT PRIMARY KEY,
+      action_id    TEXT REFERENCES action_log(id),
+      timestamp    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      tool_name    TEXT NOT NULL,
+      input        TEXT,
+      output       TEXT,
+      duration_ms  INTEGER,
+      success      INTEGER DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_event_log_timestamp ON event_log(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_action_log_triggered_by ON action_log(triggered_by);
+    CREATE INDEX IF NOT EXISTS idx_tool_call_log_action_id ON tool_call_log(action_id);
+  `);
+}
+
+// Prepared statements (lazily created, schema ensured on first use)
 let _insertEvent: Database.Statement | null = null;
 let _insertAction: Database.Statement | null = null;
 let _insertToolCall: Database.Statement | null = null;
 
 function insertEventStmt(): Database.Statement {
   if (!_insertEvent) {
+    ensureSchema();
     _insertEvent = getDb().prepare(
       `INSERT INTO event_log (id, timestamp, source, source_id, raw_content, summary) VALUES (?, ?, ?, ?, ?, ?)`,
     );
@@ -38,6 +82,7 @@ function insertEventStmt(): Database.Statement {
 
 function insertActionStmt(): Database.Statement {
   if (!_insertAction) {
+    ensureSchema();
     _insertAction = getDb().prepare(
       `INSERT INTO action_log (id, timestamp, triggered_by, action_type, target, content, tool_calls) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
@@ -47,6 +92,7 @@ function insertActionStmt(): Database.Statement {
 
 function insertToolCallStmt(): Database.Statement {
   if (!_insertToolCall) {
+    ensureSchema();
     _insertToolCall = getDb().prepare(
       `INSERT INTO tool_call_log (id, action_id, timestamp, tool_name, input, output, duration_ms, success) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
