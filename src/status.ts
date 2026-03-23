@@ -1,5 +1,10 @@
 import { ASSISTANT_NAME, TIMEZONE } from './config.js';
 import {
+  getUsageSummary,
+  getUsageByGroup,
+  getUsageTimeline,
+} from './usage-log.js';
+import {
   getAllRegisteredGroups,
   getAllTasks,
   getTaskById,
@@ -448,4 +453,78 @@ export function handleDebugCommand(
       '  /debug report — summary report with stats and errors',
     ].join('\n'),
   };
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function formatCost(usd: number): string {
+  return `$${usd.toFixed(4)}`;
+}
+
+export function handleUsageCommand(
+  args: string,
+): { ok: true; message: string } | { ok: false; error: string } {
+  const period =
+    args === 'week'
+      ? 'week'
+      : args === 'month'
+        ? 'month'
+        : args === 'all'
+          ? 'all'
+          : 'today';
+
+  const periodLabel =
+    period === 'today'
+      ? 'Today'
+      : period === 'week'
+        ? 'Last 7 Days'
+        : period === 'month'
+          ? 'Last 30 Days'
+          : 'All Time';
+
+  const summary = getUsageSummary(period);
+  const byGroup = getUsageByGroup(period);
+
+  const lines: string[] = [
+    `*Usage - ${periodLabel}*`,
+    `────────────────`,
+    `Invocations: ${summary.invocations}`,
+    `Tokens: ${formatTokens(summary.input_tokens)} in / ${formatTokens(summary.output_tokens)} out`,
+    `Cache: ${formatTokens(summary.cache_read_tokens)} read / ${formatTokens(summary.cache_creation_tokens)} created`,
+    `Cost: ${formatCost(summary.total_cost_usd)}`,
+    `Duration: ${formatDuration(summary.total_duration_ms)}`,
+    `Turns: ${summary.total_turns}`,
+  ];
+
+  if (byGroup.length > 0) {
+    lines.push('', `*By Group:*`);
+    for (const g of byGroup) {
+      lines.push(
+        `  ${g.group_name}: ${g.invocations} calls, ${formatTokens(g.input_tokens + g.output_tokens)} tokens, ${formatCost(g.total_cost_usd)}`,
+      );
+    }
+  }
+
+  if (period === 'today') {
+    const timeline = getUsageTimeline(7);
+    if (timeline.length > 1) {
+      lines.push('', `*Daily Trend (last 7 days):*`);
+      for (const day of timeline) {
+        lines.push(
+          `  ${day.date}: ${day.invocations} calls, ${formatTokens(day.input_tokens + day.output_tokens)} tokens, ${formatCost(day.total_cost_usd)}`,
+        );
+      }
+    }
+  }
+
+  lines.push(
+    '',
+    '_/usage [week|month|all] for other periods_',
+  );
+
+  return { ok: true, message: lines.join('\n') };
 }

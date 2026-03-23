@@ -53,6 +53,7 @@ import {
   logInboundMessage,
   startLogPruning,
 } from './observability.js';
+import { logUsage } from './usage-log.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -367,6 +368,9 @@ async function runAgent(
         if (output.newSessionId) {
           sessions[group.folder] = output.newSessionId;
           setSession(group.folder, output.newSessionId);
+        }
+        if (output.usage) {
+          logUsage(chatJid, group.name, group.folder, output.usage);
         }
         await onOutput(output);
       }

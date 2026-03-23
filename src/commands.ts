@@ -8,6 +8,7 @@ import {
   buildTasksStatus,
   handleDebugCommand,
   handleTaskCommand,
+  handleUsageCommand,
 } from './status.js';
 import { startRemoteControl, stopRemoteControl } from './remote-control.js';
 import { findChannel } from './router.js';
@@ -64,6 +65,15 @@ export function tryHandleCommand(
     channel
       .sendMessage(chatJid, result.ok ? result.message : result.error)
       .catch((err) => logger.error({ err, chatJid }, 'Task command error'));
+    return true;
+  }
+
+  if (trimmed === '/usage' || trimmed.startsWith('/usage ')) {
+    const args = trimmed.slice('/usage'.length).trim();
+    const result = handleUsageCommand(args);
+    channel
+      .sendMessage(chatJid, result.ok ? result.message : result.error)
+      .catch((err) => logger.error({ err, chatJid }, 'Usage command error'));
     return true;
   }
 

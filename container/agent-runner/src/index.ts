@@ -41,11 +41,22 @@ interface TextContentBlock {
 }
 type ContentBlock = ImageContentBlock | TextContentBlock;
 
+interface UsageData {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+  cost_usd: number;
+  duration_ms: number;
+  num_turns: number;
+}
+
 interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
   error?: string;
+  usage?: UsageData;
 }
 
 interface SessionEntry {
@@ -493,12 +504,24 @@ async function runQuery(
 
     if (message.type === 'result') {
       resultCount++;
-      const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+      const rm = message as Record<string, unknown>;
+      const textResult = typeof rm.result === 'string' ? rm.result : null;
+      const usageObj = rm.usage as Record<string, number> | undefined;
+      const usage: UsageData | undefined = usageObj ? {
+        input_tokens: usageObj.input_tokens || 0,
+        output_tokens: usageObj.output_tokens || 0,
+        cache_read_input_tokens: usageObj.cache_read_input_tokens || 0,
+        cache_creation_input_tokens: usageObj.cache_creation_input_tokens || 0,
+        cost_usd: typeof rm.total_cost_usd === 'number' ? rm.total_cost_usd : 0,
+        duration_ms: typeof rm.duration_ms === 'number' ? rm.duration_ms : 0,
+        num_turns: typeof rm.num_turns === 'number' ? rm.num_turns : 0,
+      } : undefined;
+      log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}${usage ? ` tokens=${usage.input_tokens}in/${usage.output_tokens}out cost=$${usage.cost_usd.toFixed(4)}` : ''}`);
       writeOutput({
         status: 'success',
         result: textResult || null,
-        newSessionId
+        newSessionId,
+        usage,
       });
     }
   }
