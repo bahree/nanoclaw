@@ -149,6 +149,66 @@ If the new user wants Gmail access, they need their own OAuth credentials:
 **Option B: No Gmail**
 Skip this step. The agent will work without Gmail - it just won't be able to read/send emails.
 
+## Adding Claw to a WhatsApp group
+
+Once an instance is running, you can register additional WhatsApp groups so Claw responds in them.
+
+### 1. Find the group JID
+
+The group must have at least one message in the database. List known groups:
+
+```bash
+sqlite3 ~/nanoclaw/store/messages.db "SELECT jid, name FROM chats WHERE is_group = 1 ORDER BY last_message_time DESC"
+```
+
+### 2. Register the group
+
+Pick a folder name (lowercase, hyphens, no spaces) and insert:
+
+```bash
+sqlite3 ~/nanoclaw/store/messages.db \
+  "INSERT INTO registered_groups VALUES (
+    'JID_HERE',
+    'Group Display Name',
+    'folder-name',
+    '@Claw',
+    '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)',
+    NULL,
+    1,
+    0
+  )"
+```
+
+Column reference:
+| Column | Value | Notes |
+|--------|-------|-------|
+| `jid` | WhatsApp group JID | From step 1 |
+| `name` | Display name | Shown in logs |
+| `folder` | Folder under `groups/` | Lowercase, hyphens only |
+| `trigger_pattern` | `@Claw` | What triggers the bot |
+| `added_at` | ISO timestamp | Auto-filled by the command above |
+| `container_config` | `NULL` | Optional overrides |
+| `requires_trigger` | `1` | `1` = only responds when triggered, `0` = responds to all messages |
+| `is_main` | `0` | `1` only for the self-chat |
+
+### 3. Create the group folder
+
+```bash
+mkdir -p ~/nanoclaw/groups/folder-name/logs
+```
+
+### 4. Restart the service
+
+```bash
+systemctl --user restart nanoclaw
+```
+
+Verify the group count in the logs:
+
+```bash
+journalctl --user -u nanoclaw --since "1 min ago" | grep "State loaded"
+```
+
 ## Managing multiple instances
 
 ```bash
