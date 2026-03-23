@@ -74,21 +74,28 @@ Optional:
 
 ### 4. Link WhatsApp
 
-Run the instance interactively to complete WhatsApp authentication:
+Run the WhatsApp authentication script:
 
 ```bash
 cd ~/nanoclaw-USERNAME
-npm run dev
+npx tsx src/whatsapp-auth.ts --pairing-code
 ```
 
-A QR code or pairing code will appear. The new user scans it from their phone:
+The script will ask for the phone number (with country code, no `+` or spaces, e.g. `919876543210`), then display a pairing code. The new user enters it on their phone:
 - Open WhatsApp
 - Settings > Linked Devices > Link a Device
-- Scan the QR code
+- Tap "Link with phone number instead"
+- Enter the pairing code
 
-Once connected, send a message to test. Then register the self-chat or main group.
+> **Tip:** The `--pairing-code` method is recommended, especially over SSH, where terminal QR codes are often hard to scan. If you prefer QR codes, omit the flag: `npx tsx src/whatsapp-auth.ts`
 
-Press Ctrl+C to stop the dev server.
+Once authenticated, verify the connection by starting the instance:
+
+```bash
+CREDENTIAL_PROXY_PORT=300X npm run dev
+```
+
+Send a test message, then register the self-chat or main group. Press Ctrl+C to stop the dev server.
 
 ### 5. Create systemd service
 
