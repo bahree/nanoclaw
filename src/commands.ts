@@ -5,6 +5,8 @@
  */
 import {
   buildStatus,
+  buildGroupStatus,
+  buildGroupTasksStatus,
   buildTasksStatus,
   handleDebugCommand,
   handleTaskCommand,
@@ -42,13 +44,14 @@ export function tryHandleCommand(
     return true;
   }
 
-  // /usage works in any registered group (scoped to that group's data)
+  // Commands that work in any registered group (scoped to that group's data)
   const group = ctx.registeredGroups()[chatJid];
   const channel = findChannel(ctx.channels, chatJid);
 
   if (group && channel) {
     // Strip trigger pattern (e.g. "@Claw /usage" -> "/usage")
     const stripped = trimmed.replace(TRIGGER_PATTERN, '').trim();
+
     if (stripped === '/usage' || stripped.startsWith('/usage ')) {
       const args = stripped.slice('/usage'.length).trim();
       const opts = group.isMain
@@ -62,6 +65,25 @@ export function tryHandleCommand(
       channel
         .sendMessage(chatJid, result.ok ? result.message : result.error)
         .catch((err) => logger.error({ err, chatJid }, 'Usage command error'));
+      return true;
+    }
+
+    if (!group.isMain && (stripped === '/status' || stripped === '/status tasks')) {
+      const text =
+        stripped === '/status tasks'
+          ? buildGroupTasksStatus(chatJid)
+          : buildGroupStatus(chatJid, group.name, ctx.queue);
+      channel
+        .sendMessage(chatJid, text)
+        .catch((err) => logger.error({ err, chatJid }, 'Status command error'));
+      return true;
+    }
+
+    if (!group.isMain && stripped === '/tasks') {
+      const text = buildGroupTasksStatus(chatJid);
+      channel
+        .sendMessage(chatJid, text)
+        .catch((err) => logger.error({ err, chatJid }, 'Tasks command error'));
       return true;
     }
   }

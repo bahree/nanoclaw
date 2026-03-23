@@ -164,6 +164,81 @@ export function buildStatus(queue: GroupQueue, channels: Channel[]): string {
   return lines.join('\n');
 }
 
+export function buildGroupStatus(
+  chatJid: string,
+  groupName: string,
+  queue: GroupQueue,
+): string {
+  const qs = queue.getStatus();
+  const groupState = qs.groups.find((g) => g.jid === chatJid);
+
+  const lines: string[] = [
+    `*${groupName} - Status*`,
+    `────────────────`,
+  ];
+
+  if (groupState?.active) {
+    const state = groupState.idleWaiting
+      ? 'idle (waiting for input)'
+      : groupState.isTaskContainer
+        ? 'running a task'
+        : 'processing a query';
+    lines.push(`*Container:* ${state}`);
+    const pending: string[] = [];
+    if (groupState.pendingMessages) pending.push('messages queued');
+    if (groupState.pendingTaskCount > 0)
+      pending.push(`${groupState.pendingTaskCount} tasks queued`);
+    if (pending.length > 0) lines.push(`  ${pending.join(', ')}`);
+  } else {
+    lines.push(`*Container:* not running`);
+  }
+
+  // Tasks for this group
+  const allTasks = getAllTasks();
+  const groupTasks = allTasks.filter((t) => t.chat_jid === chatJid);
+  const activeTasks = groupTasks.filter((t) => t.status === 'active');
+  const pausedTasks = groupTasks.filter((t) => t.status === 'paused');
+
+  if (groupTasks.length > 0) {
+    lines.push('');
+    lines.push(
+      `*Tasks:* ${activeTasks.length} active${pausedTasks.length > 0 ? `, ${pausedTasks.length} paused` : ''}`,
+    );
+    for (const [i, task] of [...activeTasks, ...pausedTasks].entries()) {
+      lines.push(formatTaskLine(task, i));
+    }
+  } else {
+    lines.push('', 'No scheduled tasks for this group.');
+  }
+
+  return lines.join('\n');
+}
+
+export function buildGroupTasksStatus(chatJid: string): string {
+  const allTasks = getAllTasks();
+  const groupTasks = allTasks.filter((t) => t.chat_jid === chatJid);
+
+  if (groupTasks.length === 0) {
+    return 'No scheduled tasks for this group.';
+  }
+
+  const active = groupTasks.filter((t) => t.status === 'active');
+  const paused = groupTasks.filter((t) => t.status === 'paused');
+  const completed = groupTasks.filter((t) => t.status === 'completed');
+
+  const lines: string[] = [
+    `*Scheduled Tasks (${groupTasks.length})*`,
+    `────────────────`,
+  ];
+
+  const ordered = [...active, ...paused, ...completed];
+  for (const [i, task] of ordered.entries()) {
+    lines.push(formatTaskLine(task, i));
+  }
+
+  return lines.join('\n');
+}
+
 export function buildTasksStatus(): string {
   const tasks = getAllTasks();
 
@@ -559,8 +634,7 @@ export function handleUsageCommand(
       const groupMap = opts.registeredGroups || {};
       lines.push('', `*In Progress (not yet counted):*`);
       for (const ag of activeGroups) {
-        const name =
-          groupMap[ag.jid]?.name || ag.jid;
+        const name = groupMap[ag.jid]?.name || ag.jid;
         const label = ag.isTaskContainer ? 'task' : 'query';
         lines.push(`  ${name}: ${label} running`);
       }
