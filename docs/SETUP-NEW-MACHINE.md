@@ -57,10 +57,14 @@ Optional:
 WhatsApp auth is per-device and cannot be copied between machines. Run:
 
 ```bash
-npm run dev
+npx tsx src/whatsapp-auth.ts --pairing-code
 ```
 
-It will display a QR code or pairing code. Scan/enter it from your phone's WhatsApp (Linked Devices). Once connected, register your main group by messaging the assistant.
+Enter your phone number (with country code, no `+` or spaces, e.g. `14256479961`), then enter the pairing code on your phone: WhatsApp > Linked Devices > Link a Device > "Link with phone number instead".
+
+> **Tip:** The `--pairing-code` method is recommended, especially over SSH, where terminal QR codes are often hard to scan. If you prefer QR codes, omit the flag: `npx tsx src/whatsapp-auth.ts`
+
+Once connected, start with `npm run dev` and register your main group by messaging the assistant.
 
 ## 6. Gmail credentials
 
@@ -174,6 +178,8 @@ systemctl --user list-timers
 | Gmail credentials | No (gitignored) | Copy or re-auth (see step 6) |
 | .env secrets | No (gitignored) | Create fresh |
 | SQLite DB (messages, tasks, logs) | No (gitignored) | Starts fresh |
+| Registered groups | No (in SQLite DB) | Re-register (see [MULTI-USER-SETUP.md](MULTI-USER-SETUP.md#adding-claw-to-a-whatsapp-group)) |
+| Group folders (groups/*) | Yes (in git) | Already there from clone |
 | systemd service/timer | No (~/.config) | Create manually (steps 7-8) |
 | Container image | No | Run `./container/build.sh` |
 
