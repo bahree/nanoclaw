@@ -468,6 +468,23 @@ function formatCost(usd: number): string {
 export function handleUsageCommand(
   args: string,
 ): { ok: true; message: string } | { ok: false; error: string } {
+  if (args === 'help') {
+    return {
+      ok: true,
+      message: [
+        '*Usage Command*',
+        '────────────────',
+        '  /usage - today\'s summary + 7-day trend',
+        '  /usage week - last 7 days',
+        '  /usage month - last 30 days',
+        '  /usage all - all time',
+        '  /usage help - this message',
+        '',
+        'Shows token counts (in/out), cache usage, cost, duration, and per-group breakdown.',
+      ].join('\n'),
+    };
+  }
+
   const period =
     args === 'week'
       ? 'week'
