@@ -88,9 +88,7 @@ interface DailyUsage extends UsageSummary {
   date: string;
 }
 
-function periodFilter(
-  period: 'today' | 'week' | 'month' | 'all',
-): string {
+function periodFilter(period: 'today' | 'week' | 'month' | 'all'): string {
   switch (period) {
     case 'today':
       return "WHERE timestamp >= datetime('now', 'start of day')";
@@ -105,9 +103,14 @@ function periodFilter(
 
 export function getUsageSummary(
   period: 'today' | 'week' | 'month' | 'all' = 'today',
+  groupJid?: string,
 ): UsageSummary {
   ensureSchema();
   const filter = periodFilter(period);
+  const groupFilter = groupJid
+    ? (filter ? ' AND' : ' WHERE') + ' group_jid = ?'
+    : '';
+  const params = groupJid ? [groupJid] : [];
   const row = getDb()
     .prepare(
       `SELECT
@@ -119,9 +122,9 @@ export function getUsageSummary(
          COALESCE(SUM(cost_usd), 0) as total_cost_usd,
          COALESCE(SUM(duration_ms), 0) as total_duration_ms,
          COALESCE(SUM(num_turns), 0) as total_turns
-       FROM usage_log ${filter}`,
+       FROM usage_log ${filter}${groupFilter}`,
     )
-    .get() as UsageSummary;
+    .get(...params) as UsageSummary;
   return row;
 }
 

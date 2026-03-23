@@ -10,6 +10,7 @@ import {
   handleTaskCommand,
   handleUsageCommand,
 } from './status.js';
+import { TRIGGER_PATTERN } from './config.js';
 import { startRemoteControl, stopRemoteControl } from './remote-control.js';
 import { findChannel } from './router.js';
 import { GroupQueue } from './group-queue.js';
@@ -41,11 +42,30 @@ export function tryHandleCommand(
     return true;
   }
 
-  // All remaining commands are main-group only
+  // /usage works in any registered group (scoped to that group's data)
   const group = ctx.registeredGroups()[chatJid];
-  if (!group?.isMain) return false;
-
   const channel = findChannel(ctx.channels, chatJid);
+
+  if (group && channel) {
+    // Strip trigger pattern (e.g. "@Claw /usage" -> "/usage")
+    const stripped = trimmed.replace(TRIGGER_PATTERN, '').trim();
+    if (stripped === '/usage' || stripped.startsWith('/usage ')) {
+      const args = stripped.slice('/usage'.length).trim();
+      const opts = group.isMain
+        ? undefined
+        : { groupJid: chatJid, groupName: group.name };
+      const result = handleUsageCommand(args, opts);
+      channel
+        .sendMessage(chatJid, result.ok ? result.message : result.error)
+        .catch((err) =>
+          logger.error({ err, chatJid }, 'Usage command error'),
+        );
+      return true;
+    }
+  }
+
+  // All remaining commands are main-group only
+  if (!group?.isMain) return false;
   if (!channel) return false;
 
   if (trimmed === '/status' || trimmed === '/status tasks') {
@@ -65,15 +85,6 @@ export function tryHandleCommand(
     channel
       .sendMessage(chatJid, result.ok ? result.message : result.error)
       .catch((err) => logger.error({ err, chatJid }, 'Task command error'));
-    return true;
-  }
-
-  if (trimmed === '/usage' || trimmed.startsWith('/usage ')) {
-    const args = trimmed.slice('/usage'.length).trim();
-    const result = handleUsageCommand(args);
-    channel
-      .sendMessage(chatJid, result.ok ? result.message : result.error)
-      .catch((err) => logger.error({ err, chatJid }, 'Usage command error'));
     return true;
   }
 

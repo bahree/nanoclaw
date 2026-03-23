@@ -467,6 +467,7 @@ function formatCost(usd: number): string {
 
 export function handleUsageCommand(
   args: string,
+  opts?: { groupJid?: string; groupName?: string },
 ): { ok: true; message: string } | { ok: false; error: string } {
   if (args === 'help') {
     return {
@@ -474,7 +475,7 @@ export function handleUsageCommand(
       message: [
         '*Usage Command*',
         '────────────────',
-        '  /usage - today\'s summary + 7-day trend',
+        "  /usage - today's summary + 7-day trend",
         '  /usage week - last 7 days',
         '  /usage month - last 30 days',
         '  /usage all - all time',
@@ -503,11 +504,15 @@ export function handleUsageCommand(
           ? 'Last 30 Days'
           : 'All Time';
 
-  const summary = getUsageSummary(period);
-  const byGroup = getUsageByGroup(period);
+  const isGroupScoped = !!opts?.groupJid;
+  const summary = getUsageSummary(period, opts?.groupJid);
+
+  const title = isGroupScoped
+    ? `*Usage - ${opts!.groupName} - ${periodLabel}*`
+    : `*Usage - ${periodLabel}*`;
 
   const lines: string[] = [
-    `*Usage - ${periodLabel}*`,
+    title,
     `────────────────`,
     `Invocations: ${summary.invocations}`,
     `Tokens: ${formatTokens(summary.input_tokens)} in / ${formatTokens(summary.output_tokens)} out`,
@@ -517,31 +522,31 @@ export function handleUsageCommand(
     `Turns: ${summary.total_turns}`,
   ];
 
-  if (byGroup.length > 0) {
-    lines.push('', `*By Group:*`);
-    for (const g of byGroup) {
-      lines.push(
-        `  ${g.group_name}: ${g.invocations} calls, ${formatTokens(g.input_tokens + g.output_tokens)} tokens, ${formatCost(g.total_cost_usd)}`,
-      );
-    }
-  }
-
-  if (period === 'today') {
-    const timeline = getUsageTimeline(7);
-    if (timeline.length > 1) {
-      lines.push('', `*Daily Trend (last 7 days):*`);
-      for (const day of timeline) {
+  if (!isGroupScoped) {
+    const byGroup = getUsageByGroup(period);
+    if (byGroup.length > 0) {
+      lines.push('', `*By Group:*`);
+      for (const g of byGroup) {
         lines.push(
-          `  ${day.date}: ${day.invocations} calls, ${formatTokens(day.input_tokens + day.output_tokens)} tokens, ${formatCost(day.total_cost_usd)}`,
+          `  ${g.group_name}: ${g.invocations} calls, ${formatTokens(g.input_tokens + g.output_tokens)} tokens, ${formatCost(g.total_cost_usd)}`,
         );
+      }
+    }
+
+    if (period === 'today') {
+      const timeline = getUsageTimeline(7);
+      if (timeline.length > 1) {
+        lines.push('', `*Daily Trend (last 7 days):*`);
+        for (const day of timeline) {
+          lines.push(
+            `  ${day.date}: ${day.invocations} calls, ${formatTokens(day.input_tokens + day.output_tokens)} tokens, ${formatCost(day.total_cost_usd)}`,
+          );
+        }
       }
     }
   }
 
-  lines.push(
-    '',
-    '_/usage [week|month|all] for other periods_',
-  );
+  lines.push('', '_/usage [week|month|all] for other periods_');
 
   return { ok: true, message: lines.join('\n') };
 }
