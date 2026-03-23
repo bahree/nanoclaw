@@ -163,14 +163,19 @@ sqlite3 ~/nanoclaw/store/messages.db "SELECT jid, name FROM chats WHERE is_group
 
 ### 2. Register the group
 
-Pick a folder name (lowercase, hyphens, no spaces) and insert:
+Pick a folder name using the **channel-prefixed convention**: `{channel}_{group-name}` (e.g., `whatsapp_family-chat`, `telegram_dev-team`). The group name part should be lowercase with hyphens. This convention is required - the agent uses it when registering groups via IPC, and mismatched names cause orphaned folders.
+
+> **Important:** First check if the group is already registered (e.g., the agent may have registered it via a chat command):
+> ```bash
+> sqlite3 ~/nanoclaw/store/messages.db "SELECT name, folder FROM registered_groups"
+> ```
 
 ```bash
 sqlite3 ~/nanoclaw/store/messages.db \
   "INSERT INTO registered_groups VALUES (
     'JID_HERE',
     'Group Display Name',
-    'folder-name',
+    'whatsapp_group-name',
     '@Claw',
     '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)',
     NULL,
@@ -184,7 +189,7 @@ Column reference:
 |--------|-------|-------|
 | `jid` | WhatsApp group JID | From step 1 |
 | `name` | Display name | Shown in logs |
-| `folder` | Folder under `groups/` | Lowercase, hyphens only |
+| `folder` | Folder under `groups/` | Channel-prefixed: `whatsapp_my-group`, `telegram_my-group` |
 | `trigger_pattern` | `@Claw` | What triggers the bot |
 | `added_at` | ISO timestamp | Auto-filled by the command above |
 | `container_config` | `NULL` | Optional overrides |
@@ -194,7 +199,7 @@ Column reference:
 ### 3. Create the group folder
 
 ```bash
-mkdir -p ~/nanoclaw/groups/folder-name/logs
+mkdir -p ~/nanoclaw/groups/whatsapp_group-name/logs
 ```
 
 ### 4. Restart the service
@@ -208,6 +213,8 @@ Verify the group count in the logs:
 ```bash
 journalctl --user -u nanoclaw --since "1 min ago" | grep "State loaded"
 ```
+
+> **Note:** On restart, NanoClaw automatically recovers unprocessed messages from all registered groups - no messages are lost during downtime.
 
 ## Managing multiple instances
 
