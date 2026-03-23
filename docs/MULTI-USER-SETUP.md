@@ -46,20 +46,27 @@ The container image is shared - no need to rebuild unless it doesn't exist yet:
 
 ### 3. Create .env
 
+The easiest way is to copy from the main instance and change the port:
+
+```bash
+cp ~/nanoclaw/.env ~/nanoclaw-USERNAME/.env
+printf '\nCREDENTIAL_PROXY_PORT=300X\n' >> ~/nanoclaw-USERNAME/.env
+```
+
+Replace `300X` with the next available port (3002, 3003, etc.).
+
+**Important:** Each instance needs a unique `CREDENTIAL_PROXY_PORT`. The default is 3001. Two instances on the same port will fail to start.
+
+If creating from scratch instead:
+
 ```bash
 nano ~/nanoclaw-USERNAME/.env
 ```
 
-Required contents:
-
-```env
-ASSISTANT_NAME=Claw
-CREDENTIAL_PROXY_PORT=300X
-```
-
-**Important:** Each instance needs a unique `CREDENTIAL_PROXY_PORT`. The default is 3001, so use 3002, 3003, etc. for additional instances.
-
-Add the same Anthropic API key or OAuth token as your main instance.
+Required:
+- `ASSISTANT_NAME=Claw`
+- `CREDENTIAL_PROXY_PORT=300X`
+- Anthropic API key or OAuth token (same as main instance)
 
 Optional:
 - `OPENAI_API_KEY` (for voice transcription)
@@ -172,7 +179,33 @@ Keep track of which ports are in use:
 
 ## Updating instances
 
-Each instance is a separate git clone. To update:
+Each instance is a separate git clone pointing at the same GitHub repo.
+
+### After pushing changes from the main instance
+
+When you make changes in Claude Code (new skills, config, code fixes) and push them, all other instances need to pull, build, and restart. Use the included script:
+
+```bash
+~/nanoclaw/scripts/restart-all.sh
+```
+
+This script pulls, builds, and restarts every instance in one pass. It skips instances whose directories don't exist and continues past failures.
+
+### Adding a new instance to the script
+
+Edit `scripts/restart-all.sh` and add a line to the `INSTANCES` array:
+
+```bash
+INSTANCES=(
+  "/home/amit/nanoclaw|nanoclaw"
+  "/home/amit/nanoclaw-meenu|nanoclaw-meenu"
+  "/home/amit/nanoclaw-work|nanoclaw-work"    # add new instances here
+)
+```
+
+Format is `path|systemd-service-name`.
+
+### Updating a single instance manually
 
 ```bash
 cd ~/nanoclaw-USERNAME
@@ -182,4 +215,12 @@ npm run build
 systemctl --user restart nanoclaw-USERNAME
 ```
 
-Or use `/update-nanoclaw` in Claude Code with the working directory set to that instance.
+### After upstream updates
+
+When the weekly update checker notifies you about upstream changes:
+
+1. Run `/update-nanoclaw` in Claude Code (main instance)
+2. Push the merged changes: `git push`
+3. Run `~/nanoclaw/scripts/restart-all.sh` to propagate to all instances
+
+Or use `/update-nanoclaw` in Claude Code with the working directory set to each instance individually.
