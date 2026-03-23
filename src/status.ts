@@ -467,7 +467,12 @@ function formatCost(usd: number): string {
 
 export function handleUsageCommand(
   args: string,
-  opts?: { groupJid?: string; groupName?: string },
+  opts?: {
+    groupJid?: string;
+    groupName?: string;
+    queue?: GroupQueue;
+    registeredGroups?: Record<string, { name: string }>;
+  },
 ): { ok: true; message: string } | { ok: false; error: string } {
   if (args === 'help') {
     return {
@@ -542,6 +547,22 @@ export function handleUsageCommand(
             `  ${day.date}: ${day.invocations} calls, ${formatTokens(day.input_tokens + day.output_tokens)} tokens, ${formatCost(day.total_cost_usd)}`,
           );
         }
+      }
+    }
+  }
+
+  // Show active containers (usage not yet captured)
+  if (opts?.queue) {
+    const qs = opts.queue.getStatus();
+    const activeGroups = qs.groups.filter((g) => g.active);
+    if (activeGroups.length > 0) {
+      const groupMap = opts.registeredGroups || {};
+      lines.push('', `*In Progress (not yet counted):*`);
+      for (const ag of activeGroups) {
+        const name =
+          groupMap[ag.jid]?.name || ag.jid;
+        const label = ag.isTaskContainer ? 'task' : 'query';
+        lines.push(`  ${name}: ${label} running`);
       }
     }
   }

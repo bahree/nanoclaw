@@ -54,12 +54,14 @@ export function tryHandleCommand(
       const opts = group.isMain
         ? undefined
         : { groupJid: chatJid, groupName: group.name };
-      const result = handleUsageCommand(args, opts);
+      const result = handleUsageCommand(args, {
+        ...opts,
+        queue: ctx.queue,
+        registeredGroups: ctx.registeredGroups(),
+      });
       channel
         .sendMessage(chatJid, result.ok ? result.message : result.error)
-        .catch((err) =>
-          logger.error({ err, chatJid }, 'Usage command error'),
-        );
+        .catch((err) => logger.error({ err, chatJid }, 'Usage command error'));
       return true;
     }
   }
