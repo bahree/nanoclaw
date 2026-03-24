@@ -66,6 +66,7 @@ export interface ScheduledTask {
   last_result: string | null;
   status: 'active' | 'paused' | 'completed';
   created_at: string;
+  workflow_id?: string | null;
 }
 
 export interface TaskRunLog {

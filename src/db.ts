@@ -140,6 +140,15 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* columns already exist */
   }
+
+  // Add workflow_id column for linking tasks to workflow templates
+  try {
+    database.exec(
+      `ALTER TABLE scheduled_tasks ADD COLUMN workflow_id TEXT`,
+    );
+  } catch {
+    /* column already exists */
+  }
 }
 
 /** Get the database instance (must call initDatabase first). */
@@ -374,8 +383,8 @@ export function createTask(
 ): void {
   db.prepare(
     `
-    INSERT INTO scheduled_tasks (id, group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, next_run, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scheduled_tasks (id, group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, next_run, status, created_at, workflow_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     task.id,
@@ -388,6 +397,7 @@ export function createTask(
     task.next_run,
     task.status,
     task.created_at,
+    task.workflow_id || null,
   );
 }
 

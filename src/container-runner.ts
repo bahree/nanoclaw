@@ -126,6 +126,16 @@ function buildVolumeMounts(
     }
   }
 
+  // Workflow templates (read-only, available to all groups)
+  const workflowsDir = path.join(projectRoot, 'workflows', 'available');
+  if (fs.existsSync(workflowsDir)) {
+    mounts.push({
+      hostPath: workflowsDir,
+      containerPath: '/workspace/workflows',
+      readonly: true,
+    });
+  }
+
   // Per-group Claude sessions directory (isolated from other groups)
   // Each group gets their own .claude/ to prevent cross-group session access
   const groupSessionsDir = path.join(
