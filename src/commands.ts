@@ -68,7 +68,10 @@ export function tryHandleCommand(
       return true;
     }
 
-    if (!group.isMain && (stripped === '/status' || stripped === '/status tasks')) {
+    if (
+      !group.isMain &&
+      (stripped === '/status' || stripped === '/status tasks')
+    ) {
       const text =
         stripped === '/status tasks'
           ? buildGroupTasksStatus(chatJid)

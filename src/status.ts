@@ -172,10 +172,7 @@ export function buildGroupStatus(
   const qs = queue.getStatus();
   const groupState = qs.groups.find((g) => g.jid === chatJid);
 
-  const lines: string[] = [
-    `*${groupName} - Status*`,
-    `────────────────`,
-  ];
+  const lines: string[] = [`*${groupName} - Status*`, `────────────────`];
 
   if (groupState?.active) {
     const state = groupState.idleWaiting

@@ -150,9 +150,7 @@ function createSchema(database: Database.Database): void {
 
   // Add workflow_id column for linking tasks to workflow templates
   try {
-    database.exec(
-      `ALTER TABLE scheduled_tasks ADD COLUMN workflow_id TEXT`,
-    );
+    database.exec(`ALTER TABLE scheduled_tasks ADD COLUMN workflow_id TEXT`);
   } catch {
     /* column already exists */
   }
