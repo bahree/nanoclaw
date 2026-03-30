@@ -86,6 +86,7 @@ import { isValidTimezone } from './timezone.js';
 function resolveConfigTimezone(): string {
   const candidates = [
     process.env.TZ,
+    envConfig.TZ,
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   ];
   for (const tz of candidates) {
