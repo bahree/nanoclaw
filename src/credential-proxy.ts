@@ -89,8 +89,7 @@ export function startCredentialProxy(
           // (exchange request + auth probes). Post-exchange requests use
           // x-api-key only, so they pass through without token injection.
           if (headers['authorization']) {
-            const oauthToken =
-              staticOauthToken ?? readClaudeCodeOAuthToken();
+            const oauthToken = staticOauthToken ?? readClaudeCodeOAuthToken();
             delete headers['authorization'];
             if (oauthToken) {
               headers['authorization'] = `Bearer ${oauthToken}`;
