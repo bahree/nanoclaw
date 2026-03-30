@@ -13,9 +13,24 @@
 import { createServer, Server } from 'http';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest, RequestOptions } from 'http';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
+
+/** Read OAuth access token from Claude Code's credentials file. */
+function readClaudeCodeOAuthToken(): string | undefined {
+  try {
+    const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+    const raw = fs.readFileSync(credPath, 'utf-8');
+    const creds = JSON.parse(raw);
+    return creds?.claudeAiOauth?.accessToken as string | undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export type AuthMode = 'api-key' | 'oauth';
 
@@ -35,8 +50,10 @@ export function startCredentialProxy(
   ]);
 
   const authMode: AuthMode = secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
-  const oauthToken =
-    secrets.CLAUDE_CODE_OAUTH_TOKEN || secrets.ANTHROPIC_AUTH_TOKEN;
+  // Static override from .env; if absent, we read the token dynamically per-request
+  // from ~/.claude/.credentials.json so it stays fresh as Claude Code refreshes it.
+  const staticOauthToken =
+    secrets.CLAUDE_CODE_OAUTH_TOKEN || secrets.ANTHROPIC_AUTH_TOKEN || null;
 
   const upstreamUrl = new URL(
     secrets.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
@@ -72,6 +89,8 @@ export function startCredentialProxy(
           // (exchange request + auth probes). Post-exchange requests use
           // x-api-key only, so they pass through without token injection.
           if (headers['authorization']) {
+            const oauthToken =
+              staticOauthToken ?? readClaudeCodeOAuthToken();
             delete headers['authorization'];
             if (oauthToken) {
               headers['authorization'] = `Bearer ${oauthToken}`;
