@@ -156,9 +156,12 @@ Ensure `.env` has the OneCLI URL (create the file if it doesn't exist):
 grep -q 'ONECLI_URL' .env 2>/dev/null || echo 'ONECLI_URL=http://127.0.0.1:10254' >> .env
 ```
 
-AskUserQuestion: Claude subscription (Pro/Max) vs Anthropic API key?
+Check if a secret already exists:
+```bash
+onecli secrets list
+```
 
-**Subscription:** Tell user to run `claude setup-token` in another terminal, copy the token, add `CLAUDE_CODE_OAUTH_TOKEN=<token>` to `.env`. Do NOT collect the token in chat.
+If an Anthropic secret is listed, confirm with user: keep or reconfigure? If keeping, skip to step 5.
 
 AskUserQuestion: Do you want to use your **Claude subscription** (Pro/Max) or an **Anthropic API key**?
 
