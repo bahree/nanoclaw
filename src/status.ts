@@ -582,7 +582,7 @@ export function handleUsageCommand(
           : 'All Time';
 
   const isGroupScoped = !!opts?.groupJid;
-  const summary = getUsageSummary(period, opts?.groupJid);
+  const summary = getUsageSummary(period, opts?.groupJid, TIMEZONE);
 
   const title = isGroupScoped
     ? `*Usage - ${opts!.groupName} - ${periodLabel}*`
@@ -600,7 +600,7 @@ export function handleUsageCommand(
   ];
 
   if (!isGroupScoped) {
-    const byGroup = getUsageByGroup(period);
+    const byGroup = getUsageByGroup(period, TIMEZONE);
     if (byGroup.length > 0) {
       lines.push('', `*By Group:*`);
       for (const g of byGroup) {
@@ -611,7 +611,7 @@ export function handleUsageCommand(
     }
 
     if (period === 'today') {
-      const timeline = getUsageTimeline(7);
+      const timeline = getUsageTimeline(7, TIMEZONE);
       if (timeline.length > 1) {
         lines.push('', `*Daily Trend (last 7 days):*`);
         for (const day of timeline) {

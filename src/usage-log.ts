@@ -8,6 +8,10 @@ import crypto from 'crypto';
 import { getDb } from './db.js';
 import { logger } from './logger.js';
 import type { UsageData } from './container-runner.js';
+import {
+  startOfLocalDayUtcString,
+  sqliteUtcOffsetModifier,
+} from './timezone.js';
 
 let _schemaInitialized = false;
 
@@ -88,10 +92,13 @@ interface DailyUsage extends UsageSummary {
   date: string;
 }
 
-function periodFilter(period: 'today' | 'week' | 'month' | 'all'): string {
+function periodFilter(
+  period: 'today' | 'week' | 'month' | 'all',
+  timezone = 'UTC',
+): string {
   switch (period) {
     case 'today':
-      return "WHERE timestamp >= datetime('now', 'start of day')";
+      return `WHERE timestamp >= '${startOfLocalDayUtcString(timezone)}'`;
     case 'week':
       return "WHERE timestamp >= datetime('now', '-7 days')";
     case 'month':
@@ -104,9 +111,10 @@ function periodFilter(period: 'today' | 'week' | 'month' | 'all'): string {
 export function getUsageSummary(
   period: 'today' | 'week' | 'month' | 'all' = 'today',
   groupJid?: string,
+  timezone = 'UTC',
 ): UsageSummary {
   ensureSchema();
-  const filter = periodFilter(period);
+  const filter = periodFilter(period, timezone);
   const groupFilter = groupJid
     ? (filter ? ' AND' : ' WHERE') + ' group_jid = ?'
     : '';
@@ -130,9 +138,10 @@ export function getUsageSummary(
 
 export function getUsageByGroup(
   period: 'today' | 'week' | 'month' | 'all' = 'today',
+  timezone = 'UTC',
 ): GroupUsage[] {
   ensureSchema();
-  const filter = periodFilter(period);
+  const filter = periodFilter(period, timezone);
   return getDb()
     .prepare(
       `SELECT
@@ -153,12 +162,16 @@ export function getUsageByGroup(
     .all() as GroupUsage[];
 }
 
-export function getUsageTimeline(days: number = 7): DailyUsage[] {
+export function getUsageTimeline(
+  days: number = 7,
+  timezone = 'UTC',
+): DailyUsage[] {
   ensureSchema();
+  const offsetMod = sqliteUtcOffsetModifier(timezone);
   return getDb()
     .prepare(
       `SELECT
-         date(timestamp) as date,
+         date(datetime(timestamp, ?)) as date,
          COUNT(*) as invocations,
          COALESCE(SUM(input_tokens), 0) as input_tokens,
          COALESCE(SUM(output_tokens), 0) as output_tokens,
@@ -169,8 +182,8 @@ export function getUsageTimeline(days: number = 7): DailyUsage[] {
          COALESCE(SUM(num_turns), 0) as total_turns
        FROM usage_log
        WHERE timestamp >= datetime('now', ?)
-       GROUP BY date(timestamp)
+       GROUP BY date(datetime(timestamp, ?))
        ORDER BY date DESC`,
     )
-    .all(`-${days} days`) as DailyUsage[];
+    .all(offsetMod, `-${days} days`, offsetMod) as DailyUsage[];
 }
