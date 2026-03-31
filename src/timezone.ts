@@ -57,8 +57,7 @@ export function sqliteUtcOffsetModifier(timezone: string): string {
   }).formatToParts(now);
   const lh = parseInt(parts.find((p) => p.type === 'hour')!.value);
   const lm = parseInt(parts.find((p) => p.type === 'minute')!.value);
-  let offsetMin =
-    lh * 60 + lm - (now.getUTCHours() * 60 + now.getUTCMinutes());
+  let offsetMin = lh * 60 + lm - (now.getUTCHours() * 60 + now.getUTCMinutes());
   if (offsetMin > 720) offsetMin -= 1440;
   if (offsetMin < -720) offsetMin += 1440;
   const sign = offsetMin >= 0 ? '+' : '-';
