@@ -2,11 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-const PROCESSED_IDS_PATH = path.join(
-  process.cwd(),
-  'store',
-  'gmail-processed-ids.json',
-);
+const PROCESSED_IDS_PATH = path.join(process.cwd(), 'store', 'gmail-processed-ids.json');
 
 import { google, gmail_v1 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
@@ -19,9 +15,7 @@ import type { ChannelAdapter, ChannelSetup, OutboundMessage } from './adapter.js
 function loadProcessedIds(): string[] {
   try {
     if (fs.existsSync(PROCESSED_IDS_PATH)) {
-      return JSON.parse(
-        fs.readFileSync(PROCESSED_IDS_PATH, 'utf-8'),
-      ) as string[];
+      return JSON.parse(fs.readFileSync(PROCESSED_IDS_PATH, 'utf-8')) as string[];
     }
   } catch {
     // ignore corrupt file — start fresh
@@ -57,6 +51,7 @@ export class GmailChannel implements ChannelAdapter {
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private processedIds = new Set<string>(loadProcessedIds());
   private threadMeta = new Map<string, ThreadMeta>();
+  private lastThreadId: string | null = null; // most recently received thread, used by inbox deliver
   private consecutiveErrors = 0;
   private userEmail = '';
   private connected = false;
@@ -94,9 +89,7 @@ export class GmailChannel implements ChannelAdapter {
     const tokensPath = path.join(credDir, 'credentials.json');
 
     if (!fs.existsSync(keysPath) || !fs.existsSync(tokensPath)) {
-      logger.warn(
-        'Gmail credentials not found in ~/.gmail-mcp/. Skipping Gmail channel. Run /add-gmail to set up.',
-      );
+      logger.warn('Gmail credentials not found in ~/.gmail-mcp/. Skipping Gmail channel. Run /add-gmail to set up.');
       return;
     }
 
@@ -105,11 +98,7 @@ export class GmailChannel implements ChannelAdapter {
 
     const clientConfig = keys.installed || keys.web || keys;
     const { client_id, client_secret, redirect_uris } = clientConfig;
-    this.oauth2Client = new google.auth.OAuth2(
-      client_id,
-      client_secret,
-      redirect_uris?.[0],
-    );
+    this.oauth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris?.[0]);
     this.oauth2Client.setCredentials(tokens);
 
     // Persist refreshed tokens
@@ -136,10 +125,7 @@ export class GmailChannel implements ChannelAdapter {
     const schedulePoll = () => {
       const backoffMs =
         this.consecutiveErrors > 0
-          ? Math.min(
-              this.pollIntervalMs * Math.pow(2, this.consecutiveErrors),
-              30 * 60 * 1000,
-            )
+          ? Math.min(this.pollIntervalMs * Math.pow(2, this.consecutiveErrors), 30 * 60 * 1000)
           : this.pollIntervalMs;
       this.pollTimer = setTimeout(() => {
         this.pollForMessages()
@@ -161,17 +147,17 @@ export class GmailChannel implements ChannelAdapter {
       return;
     }
 
-    const threadId = jid.replace(/^gmail:/, '');
+    const rawId = jid.replace(/^gmail:/, '');
+    // 'inbox' is the fixed routing jid — fall back to the last received thread
+    const threadId = rawId === 'inbox' ? (this.lastThreadId ?? rawId) : rawId;
     const meta = this.threadMeta.get(threadId);
 
     if (!meta) {
-      logger.warn('No thread metadata for reply, cannot send', { jid });
+      logger.warn('No thread metadata for reply, cannot send', { jid, threadId });
       return;
     }
 
-    const subject = meta.subject.startsWith('Re:')
-      ? meta.subject
-      : `Re: ${meta.subject}`;
+    const subject = meta.subject.startsWith('Re:') ? meta.subject : `Re: ${meta.subject}`;
 
     const headers = [
       `To: ${meta.sender}`,
@@ -255,10 +241,7 @@ export class GmailChannel implements ChannelAdapter {
       this.consecutiveErrors = 0;
     } catch (err) {
       this.consecutiveErrors++;
-      const backoffMs = Math.min(
-        this.pollIntervalMs * Math.pow(2, this.consecutiveErrors),
-        30 * 60 * 1000,
-      );
+      const backoffMs = Math.min(this.pollIntervalMs * Math.pow(2, this.consecutiveErrors), 30 * 60 * 1000);
       logger.error('Gmail poll failed', {
         err,
         consecutiveErrors: this.consecutiveErrors,
@@ -277,17 +260,13 @@ export class GmailChannel implements ChannelAdapter {
     });
 
     const headers = msg.data.payload?.headers || [];
-    const getHeader = (name: string) =>
-      headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())
-        ?.value || '';
+    const getHeader = (name: string) => headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
 
     const from = getHeader('From');
     const subject = getHeader('Subject');
     const rfc2822MessageId = getHeader('Message-ID');
     const threadId = msg.data.threadId || messageId;
-    const timestamp = new Date(
-      parseInt(msg.data.internalDate || '0', 10),
-    ).toISOString();
+    const timestamp = new Date(parseInt(msg.data.internalDate || '0', 10)).toISOString();
 
     // Extract sender name and email
     const senderMatch = from.match(/^(.+?)\s*<(.+?)>$/);
@@ -305,37 +284,36 @@ export class GmailChannel implements ChannelAdapter {
       return;
     }
 
-    const chatJid = `gmail:${threadId}`;
-
-    // Cache thread metadata for replies
+    // Cache thread metadata for replies and track most recent thread
     this.threadMeta.set(threadId, {
       sender: senderEmail,
       senderName,
       subject,
       messageId: rfc2822MessageId,
     });
+    this.lastThreadId = threadId;
 
     if (!this.setupCallbacks) return;
 
-    // Register conversation metadata
-    this.setupCallbacks.onMetadata(chatJid, subject, false);
+    // All emails route to a single inbox group (matches v1 behaviour).
+    // Thread ID is included in content so the agent can use Gmail MCP tools
+    // to reply to the correct thread.
+    const inboxJid = 'gmail:inbox';
+    this.setupCallbacks.onMetadata(inboxJid, 'Gmail inbox', false);
 
-    const content = `[Email from ${senderName} <${senderEmail}>]\nSubject: ${subject}\n\n${body}`;
+    const content = `[Email from ${senderName} <${senderEmail}>]\nSubject: ${subject}\nThreadId: ${threadId}\n\n${body}`;
 
-    // Route to the v2 channel registry — the router maps gmail platformId to a messaging group
-    this.setupCallbacks.onInbound(chatJid, null, {
+    this.setupCallbacks.onInbound(inboxJid, null, {
       id: messageId,
       kind: 'chat',
       content: { text: content, sender: senderEmail, senderName },
       timestamp,
     });
 
-    logger.info('Gmail email delivered via v2 inbound', { chatJid, from: senderName, subject });
+    logger.info('Gmail email delivered via v2 inbound', { chatJid: inboxJid, from: senderName, subject, threadId });
   }
 
-  private extractTextBody(
-    payload: gmail_v1.Schema$MessagePart | undefined,
-  ): string {
+  private extractTextBody(payload: gmail_v1.Schema$MessagePart | undefined): string {
     if (!payload) return '';
 
     // Direct text/plain body

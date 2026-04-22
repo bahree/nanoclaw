@@ -970,7 +970,49 @@ After editing package.json, run `pnpm install` (v2 uses pnpm, not npm).
 
 ---
 
-### 36. src/channels/whatsapp.ts — self-chat (fromMe) fix
+### 36. src/channels/gmail.ts — inbox routing (v2 DB wiring)
+
+**Intent:** Route all incoming Gmail emails to a single `gmail:inbox` messaging group (matching v1 behaviour). The v2 router requires a pre-wired messaging group for each platform_id; since Gmail thread IDs are dynamic and emails have no `isMention` flag, per-thread routing silently drops all emails.
+
+**Files:** `src/channels/gmail.ts` (custom port, not in upstream channels branch)
+
+**DB change:** Insert `(gmail, inbox)` messaging group wired to `ag-main` — see Post-Migration Steps.
+
+**How to apply:** Three changes in `src/channels/gmail.ts`:
+
+1. Add `lastThreadId` tracker alongside `threadMeta`:
+```typescript
+private lastThreadId: string | null = null;
+```
+
+2. In `processEmail`, change per-thread routing to fixed inbox jid:
+```typescript
+// SET after threadMeta.set():
+this.lastThreadId = threadId;
+// CHANGE chatJid + onMetadata + content + onInbound to use 'gmail:inbox':
+const inboxJid = 'gmail:inbox';
+this.setupCallbacks.onMetadata(inboxJid, 'Gmail inbox', false);
+const content = `[Email from ${senderName} <${senderEmail}>]\nSubject: ${subject}\nThreadId: ${threadId}\n\n${body}`;
+this.setupCallbacks.onInbound(inboxJid, null, { ... });
+```
+
+3. In `sendMessage`, fall back to `lastThreadId` when jid is 'inbox':
+```typescript
+const rawId = jid.replace(/^gmail:/, '');
+const threadId = rawId === 'inbox' ? (this.lastThreadId ?? rawId) : rawId;
+```
+
+**DB wiring to add after migration (in sqlite3 data/v2.db):**
+```sql
+INSERT INTO messaging_groups (id, channel_type, platform_id, name, is_group, unknown_sender_policy, created_at)
+VALUES ('mg-gmail', 'gmail', 'inbox', 'Gmail inbox', 0, 'strict', datetime('now'));
+INSERT INTO messaging_group_agents (id, messaging_group_id, agent_group_id, session_mode, priority, created_at, engage_mode, engage_pattern)
+VALUES ('mga-gmail', 'mg-gmail', 'ag-main', 'shared', 0, datetime('now'), 'pattern', '.');
+```
+
+---
+
+### 37. src/channels/whatsapp.ts — self-chat (fromMe) fix
 
 **Intent:** Allow messages sent in WhatsApp self-chat (user messaging their own number) to be routed to the agent. The upstream adapter blanket-filters all `fromMe` messages to prevent echo loops, which also silently drops self-chat.
 
@@ -991,20 +1033,28 @@ let ownJid: string | undefined; // own phone JID — used to detect self-chat (f
 ownJid = `${phoneUser}@s.whatsapp.net`;
 ```
 
-3. Replace the `fromMe` filter in `messages.upsert` handler:
+3. Replace the `sender` declaration and `fromMe` filter in `messages.upsert` handler:
 ```typescript
 // BEFORE:
+const sender = msg.key.participant || msg.key.remoteJid || '';
+const senderName = msg.pushName || sender.split('@')[0];
+const fromMe = msg.key.fromMe || false;
 // Filter bot's own messages to prevent echo loops.
 // fromMe is always true for messages sent from this linked device,
 // regardless of ASSISTANT_HAS_OWN_NUMBER mode.
 if (fromMe) continue;
 
 // AFTER:
+const fromMe = msg.key.fromMe || false;
 // Filter bot's own outgoing messages to prevent echo loops.
 // Exception: self-chat (fromMe + chatJid === own number) — these
 // are the user's own messages sent to themselves and must be routed.
 const isSelfChat = fromMe && ownJid !== undefined && chatJid === ownJid;
 if (fromMe && !isSelfChat) continue;
+// For self-chat, WhatsApp may report the sender as a LID instead of
+// the phone JID. Force it to ownJid so the user ID resolves correctly.
+const sender = isSelfChat ? ownJid! : (msg.key.participant || msg.key.remoteJid || '');
+const senderName = msg.pushName || sender.split('@')[0];
 ```
 
 ---
