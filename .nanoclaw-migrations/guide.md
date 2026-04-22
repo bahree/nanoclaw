@@ -970,6 +970,45 @@ After editing package.json, run `pnpm install` (v2 uses pnpm, not npm).
 
 ---
 
+### 36. src/channels/whatsapp.ts — self-chat (fromMe) fix
+
+**Intent:** Allow messages sent in WhatsApp self-chat (user messaging their own number) to be routed to the agent. The upstream adapter blanket-filters all `fromMe` messages to prevent echo loops, which also silently drops self-chat.
+
+**Files:** `src/channels/whatsapp.ts` (copied from `upstream/channels` branch)
+
+**Upstream status:** Gap in the channels branch — self-chat was not considered a use case. Track for a future upstream PR. Re-apply after every `whatsapp.ts` update.
+
+**How to apply:** Three changes in `src/channels/whatsapp.ts`:
+
+1. Add `ownJid` variable alongside `botLidUser` (around line 167):
+```typescript
+let botLidUser: string | undefined;
+let ownJid: string | undefined; // own phone JID — used to detect self-chat (fromMe to own number)
+```
+
+2. Set `ownJid` in the connection handler where `sock.user` is checked (after the `botLidUser` block, around line 453):
+```typescript
+ownJid = `${phoneUser}@s.whatsapp.net`;
+```
+
+3. Replace the `fromMe` filter in `messages.upsert` handler:
+```typescript
+// BEFORE:
+// Filter bot's own messages to prevent echo loops.
+// fromMe is always true for messages sent from this linked device,
+// regardless of ASSISTANT_HAS_OWN_NUMBER mode.
+if (fromMe) continue;
+
+// AFTER:
+// Filter bot's own outgoing messages to prevent echo loops.
+// Exception: self-chat (fromMe + chatJid === own number) — these
+// are the user's own messages sent to themselves and must be routed.
+const isSelfChat = fromMe && ownJid !== undefined && chatJid === ownJid;
+if (fromMe && !isSelfChat) continue;
+```
+
+---
+
 ## Post-Migration Steps
 
 1. Run `pnpm install && pnpm run build` in the worktree to validate

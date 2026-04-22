@@ -165,6 +165,7 @@ registerChannelAdapter('whatsapp', {
     // LID → phone JID mapping (WhatsApp's new ID system)
     const lidToPhoneMap: Record<string, string> = {};
     let botLidUser: string | undefined;
+    let ownJid: string | undefined; // own phone JID — used to detect self-chat (fromMe to own number)
 
     // Outgoing queue for messages sent while disconnected
     const outgoingQueue: Array<{ jid: string; text: string }> = [];
@@ -452,6 +453,7 @@ registerChannelAdapter('whatsapp', {
               setLidPhoneMapping(lidUser, `${phoneUser}@s.whatsapp.net`);
               botLidUser = lidUser;
             }
+            ownJid = `${phoneUser}@s.whatsapp.net`;
           }
 
           // Flush queued messages
@@ -532,10 +534,11 @@ registerChannelAdapter('whatsapp', {
             const sender = msg.key.participant || msg.key.remoteJid || '';
             const senderName = msg.pushName || sender.split('@')[0];
             const fromMe = msg.key.fromMe || false;
-            // Filter bot's own messages to prevent echo loops.
-            // fromMe is always true for messages sent from this linked device,
-            // regardless of ASSISTANT_HAS_OWN_NUMBER mode.
-            if (fromMe) continue;
+            // Filter bot's own outgoing messages to prevent echo loops.
+            // Exception: self-chat (fromMe + chatJid === own number) — these
+            // are the user's own messages sent to themselves and must be routed.
+            const isSelfChat = fromMe && ownJid !== undefined && chatJid === ownJid;
+            if (fromMe && !isSelfChat) continue;
 
             const isBotMessage = ASSISTANT_HAS_OWN_NUMBER ? false : content.startsWith(`${ASSISTANT_NAME}:`);
 
