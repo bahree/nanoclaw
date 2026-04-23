@@ -55,6 +55,7 @@ const TOOL_ALLOWLIST = [
   'Skill',
   'NotebookEdit',
   'mcp__nanoclaw__*',
+  'mcp__gmail__*',
 ];
 
 interface SDKUserMessage {
@@ -304,7 +305,22 @@ export class ClaudeProvider implements AgentProvider {
           yield { type: 'init', continuation: message.session_id };
         } else if (message.type === 'result') {
           const text = 'result' in message ? (message as { result?: string }).result ?? null : null;
-          yield { type: 'result', text };
+          const r = message as {
+            total_cost_usd?: number;
+            num_turns?: number;
+            usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+          };
+          const usage = r.usage
+            ? {
+                inputTokens: r.usage.input_tokens ?? 0,
+                outputTokens: r.usage.output_tokens ?? 0,
+                cacheReadTokens: r.usage.cache_read_input_tokens ?? 0,
+                cacheCreationTokens: r.usage.cache_creation_input_tokens ?? 0,
+                costUsd: r.total_cost_usd ?? 0,
+                numTurns: r.num_turns ?? 0,
+              }
+            : undefined;
+          yield { type: 'result', text, usage };
         } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'api_retry') {
           yield { type: 'error', message: 'API retry', retryable: true };
         } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'rate_limit_event') {

@@ -2,8 +2,8 @@ import { findByName, getAllDestinations, type DestinationEntry } from './destina
 import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
 import { writeMessageOut } from './db/messages-out.js';
 import { touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
-import { getStoredSessionId, setStoredSessionId, clearStoredSessionId } from './db/session-state.js';
-import { formatMessages, extractRouting, categorizeMessage, isClearCommand, stripInternalTags, type RoutingContext } from './formatter.js';
+import { getStoredSessionId, setStoredSessionId, clearStoredSessionId, addSessionUsage, getSessionUsage, clearSessionUsage } from './db/session-state.js';
+import { formatMessages, extractRouting, categorizeMessage, isClearCommand, isUsageCommand, formatUsageReport, stripInternalTags, type RoutingContext } from './formatter.js';
 import type { AgentProvider, AgentQuery, ProviderEvent } from './providers/types.js';
 
 const POLL_INTERVAL_MS = 1000;
@@ -95,6 +95,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
         log('Clearing session (resetting continuation)');
         continuation = undefined;
         clearStoredSessionId();
+        clearSessionUsage();
         writeMessageOut({
           id: generateId(),
           kind: 'chat',
@@ -102,6 +103,18 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
           channel_type: routing.channelType,
           thread_id: routing.threadId,
           content: JSON.stringify({ text: 'Session cleared.' }),
+        });
+        commandIds.push(msg.id);
+        continue;
+      }
+      if ((msg.kind === 'chat' || msg.kind === 'chat-sdk') && isUsageCommand(msg)) {
+        writeMessageOut({
+          id: generateId(),
+          kind: 'chat',
+          platform_id: routing.platformId,
+          channel_type: routing.channelType,
+          thread_id: routing.threadId,
+          content: JSON.stringify({ text: formatUsageReport(getSessionUsage()) }),
         });
         commandIds.push(msg.id);
         continue;
@@ -297,6 +310,9 @@ async function processQuery(
         // (send_message) mid-turn, or the message may not need a response
         // at all — either way the turn is finished.
         markCompleted(initialBatchIds);
+        if (event.usage) {
+          addSessionUsage(event.usage);
+        }
         if (event.text) {
           dispatchResultText(event.text, routing);
         }

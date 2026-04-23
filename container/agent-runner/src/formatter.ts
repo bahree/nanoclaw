@@ -11,7 +11,7 @@ import { TIMEZONE, formatLocalTime } from './timezone.js';
  */
 export type CommandCategory = 'admin' | 'filtered' | 'passthrough' | 'none';
 
-const ADMIN_COMMANDS = new Set(['/remote-control', '/clear', '/compact', '/context', '/cost', '/files']);
+const ADMIN_COMMANDS = new Set(['/remote-control', '/clear', '/compact', '/context', '/cost', '/files', '/usage']);
 const FILTERED_COMMANDS = new Set(['/help', '/login', '/logout', '/doctor', '/config', '/start']);
 
 export interface CommandInfo {
@@ -56,14 +56,54 @@ export function categorizeMessage(msg: MessageInRow): CommandInfo {
 }
 
 /**
- * Narrow check for /clear — the only command the runner handles directly.
- * All other command gating (filtered, admin) is done by the host router
- * before messages reach the container.
+ * Narrow check for /clear — clears session continuation + usage.
  */
 export function isClearCommand(msg: MessageInRow): boolean {
   const content = parseContent(msg.content);
   const text = (content.text || '').trim();
   return text.toLowerCase().startsWith('/clear');
+}
+
+/**
+ * Narrow check for /usage — reports session token/cost totals inline.
+ */
+export function isUsageCommand(msg: MessageInRow): boolean {
+  const content = parseContent(msg.content);
+  const text = (content.text || '').trim();
+  return text.toLowerCase().startsWith('/usage');
+}
+
+interface SessionUsageSummary {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number;
+  totalTurns: number;
+  queries: number;
+}
+
+export function formatUsageReport(u: SessionUsageSummary): string {
+  const fmt = (n: number) => n.toLocaleString('en-US');
+  const totalTokens = u.inputTokens + u.outputTokens;
+  const lines = [
+    '*Session usage*',
+    `  Input:          ${fmt(u.inputTokens)} tokens`,
+    `  Output:         ${fmt(u.outputTokens)} tokens`,
+  ];
+  if (u.cacheReadTokens > 0) {
+    lines.push(`  Cache read:     ${fmt(u.cacheReadTokens)} tokens`);
+  }
+  if (u.cacheCreationTokens > 0) {
+    lines.push(`  Cache write:    ${fmt(u.cacheCreationTokens)} tokens`);
+  }
+  lines.push(
+    `  Total tokens:   ${fmt(totalTokens)}`,
+    `  Cost:           $${u.costUsd.toFixed(4)}`,
+    `  Turns:          ${fmt(u.totalTurns)}`,
+    `  Queries:        ${fmt(u.queries)}`,
+  );
+  return lines.join('\n');
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

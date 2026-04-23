@@ -6,6 +6,7 @@
  * resumes across container restarts. Cleared by /clear.
  */
 import { getOutboundDb } from './connection.js';
+import type { TurnUsage } from '../providers/types.js';
 
 const SDK_SESSION_KEY = 'sdk_session_id';
 
@@ -38,4 +39,46 @@ export function setStoredSessionId(sessionId: string): void {
 
 export function clearStoredSessionId(): void {
   deleteValue(SDK_SESSION_KEY);
+}
+
+// --- Session-lifetime usage accumulator ---
+
+const USAGE_KEY = 'session_usage';
+
+interface StoredUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number;
+  totalTurns: number;
+  queries: number;
+}
+
+export function addSessionUsage(turn: TurnUsage): void {
+  const raw = getValue(USAGE_KEY);
+  const prev: StoredUsage = raw
+    ? (JSON.parse(raw) as StoredUsage)
+    : { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0, totalTurns: 0, queries: 0 };
+  const next: StoredUsage = {
+    inputTokens: prev.inputTokens + turn.inputTokens,
+    outputTokens: prev.outputTokens + turn.outputTokens,
+    cacheReadTokens: prev.cacheReadTokens + turn.cacheReadTokens,
+    cacheCreationTokens: prev.cacheCreationTokens + turn.cacheCreationTokens,
+    costUsd: prev.costUsd + turn.costUsd,
+    totalTurns: prev.totalTurns + turn.numTurns,
+    queries: prev.queries + 1,
+  };
+  setValue(USAGE_KEY, JSON.stringify(next));
+}
+
+export function getSessionUsage(): StoredUsage {
+  const raw = getValue(USAGE_KEY);
+  return raw
+    ? (JSON.parse(raw) as StoredUsage)
+    : { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0, totalTurns: 0, queries: 0 };
+}
+
+export function clearSessionUsage(): void {
+  deleteValue(USAGE_KEY);
 }
