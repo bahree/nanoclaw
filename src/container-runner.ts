@@ -5,6 +5,7 @@
  */
 import { ChildProcess, execSync, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import { OneCLI } from '@onecli-sh/sdk';
@@ -258,6 +259,20 @@ function buildMounts(
   // skill symlinks)
   mounts.push({ hostPath: claudeDir, containerPath: '/home/node/.claude', readonly: false });
 
+  // Gmail MCP OAuth credentials — RW so the MCP server can refresh tokens.
+  const gmailDir = path.join(os.homedir(), '.gmail-mcp');
+  if (fs.existsSync(gmailDir)) {
+    mounts.push({ hostPath: gmailDir, containerPath: '/home/node/.gmail-mcp', readonly: false });
+  }
+
+  // Overlay the host's OAuth credentials file so Teams-plan tokens are visible
+  // inside the container and refreshed tokens write back to the host file.
+  // This mount overlays the per-group .claude-shared dir mount above.
+  const hostCredentials = path.join(os.homedir(), '.claude', '.credentials.json');
+  if (fs.existsSync(hostCredentials)) {
+    mounts.push({ hostPath: hostCredentials, containerPath: '/home/node/.claude/.credentials.json', readonly: false });
+  }
+
   // Shared agent-runner source — read-only, same code for all groups.
   const agentRunnerSrc = path.join(projectRoot, 'container', 'agent-runner', 'src');
   mounts.push({ hostPath: agentRunnerSrc, containerPath: '/app/src', readonly: true });
@@ -408,6 +423,16 @@ async function buildContainerArgs(
     }
   } catch (err) {
     log.warn('OneCLI gateway error — container will have no credentials', { containerName, err });
+  }
+
+  // OneCLI always injects ANTHROPIC_API_KEY=placeholder so the proxy can
+  // substitute the real key. If the vault has no Anthropic secret (e.g. Teams
+  // plan uses OAuth), the placeholder reaches the API and causes a 401. Strip
+  // it so the container authenticates via the OAuth credentials file instead.
+  const placeholderIdx = args.indexOf('ANTHROPIC_API_KEY=placeholder');
+  if (placeholderIdx > 0 && args[placeholderIdx - 1] === '-e') {
+    args.splice(placeholderIdx - 1, 2);
+    log.info('Stripped placeholder ANTHROPIC_API_KEY — container will use OAuth credentials', { containerName });
   }
 
   // Host gateway
