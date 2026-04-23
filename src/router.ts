@@ -422,6 +422,20 @@ async function deliverToAgent(
     }
   }
 
+  // Drop bot's own messages (e.g. self-chat echoes that slipped through the
+  // adapter) before they reach the agent and cause response loops.
+  if (event.message.kind === 'chat' || event.message.kind === 'chat-sdk') {
+    try {
+      const parsed = JSON.parse(event.message.content);
+      if (parsed.isBotMessage === true) {
+        log.debug('Dropped isBotMessage before write', { agentGroupId: agent.agent_group_id });
+        return;
+      }
+    } catch {
+      /* non-JSON content — pass through */
+    }
+  }
+
   writeSessionMessage(session.agent_group_id, session.id, {
     id: messageIdForAgent(event.message.id, agent.agent_group_id),
     kind: event.message.kind,

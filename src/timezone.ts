@@ -45,13 +45,9 @@ export function startOfLocalDayUtcString(timezone: string): string {
     second: '2-digit',
     hour12: false,
   }).formatToParts(now);
-  const get = (type: string) =>
-    parseInt(parts.find((p) => p.type === type)!.value);
-  const elapsedMs =
-    (get('hour') * 3600 + get('minute') * 60 + get('second')) * 1000;
-  const midnightUtc = new Date(
-    now.getTime() - elapsedMs - now.getMilliseconds(),
-  );
+  const get = (type: string) => parseInt(parts.find((p) => p.type === type)!.value);
+  const elapsedMs = (get('hour') * 3600 + get('minute') * 60 + get('second')) * 1000;
+  const midnightUtc = new Date(now.getTime() - elapsedMs - now.getMilliseconds());
   return midnightUtc.toISOString().replace('T', ' ').slice(0, 19);
 }
 
