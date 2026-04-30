@@ -9,6 +9,7 @@ import { isValidTimezone } from './timezone.js';
 const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
+  'OLLAMA_ADMIN_TOOLS',
   'ONECLI_URL',
   'ONECLI_API_KEY',
   'TZ',
@@ -17,8 +18,12 @@ const envConfig = readEnvFile([
 
 export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
 export const ASSISTANT_HAS_OWN_NUMBER =
-  (process.env.ASSISTANT_HAS_OWN_NUMBER || envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
-export const OLLAMA_ADMIN_TOOLS = (process.env.OLLAMA_ADMIN_TOOLS || envConfig.OLLAMA_ADMIN_TOOLS) === 'true';
+  (process.env.ASSISTANT_HAS_OWN_NUMBER ||
+    envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
+export const OLLAMA_ADMIN_TOOLS =
+  (process.env.OLLAMA_ADMIN_TOOLS || envConfig.OLLAMA_ADMIN_TOOLS) === 'true';
+export const POLL_INTERVAL = 2000;
+export const SCHEDULER_POLL_INTERVAL = 60000;
 
 // Absolute paths needed for container mounts
 const PROJECT_ROOT = process.cwd();
