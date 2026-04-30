@@ -532,23 +532,21 @@ registerChannelAdapter('whatsapp', {
             if (!content && attachments.length === 0) continue;
 
             const fromMe = msg.key.fromMe || false;
-            // Filter bot's own outgoing messages to prevent echo loops.
-            // Exception: self-chat (fromMe + chatJid === own number) — these
-            // are the user's own messages sent to themselves and must be routed.
             const isSelfChat = fromMe && ownJid !== undefined && chatJid === ownJid;
-            if (fromMe && !isSelfChat) continue;
-            // Self-chat echo guard: the agent's own replies come back as fromMe+isSelfChat.
-            // Filter them out using sentMessageCache to prevent an infinite response loop.
-            if (isSelfChat && msg.key.id && sentMessageCache.has(msg.key.id)) continue;
+
+            // Echo loop prevention: filter bot's own outgoing messages.
+            // Cache-based guard covers both self-chat and group replies.
+            if (fromMe && msg.key.id && sentMessageCache.has(msg.key.id)) continue;
+
             // For self-chat, WhatsApp may report the sender as a LID instead of
             // the phone JID. Force it to ownJid so the user ID resolves correctly.
             const sender = isSelfChat ? ownJid! : msg.key.participant || msg.key.remoteJid || '';
             const senderName = msg.pushName || sender.split('@')[0];
 
             const isBotMessage = ASSISTANT_HAS_OWN_NUMBER ? false : content.startsWith(`${ASSISTANT_NAME}:`);
-            // Timing-safe self-chat echo guard: bot replies carry the "Claw: " prefix.
-            // This catches echoes before sentMessageCache is populated (race-condition-safe).
-            if (isSelfChat && isBotMessage) continue;
+            // Prefix-based echo guard: catches bot replies before sentMessageCache is populated.
+            // Applies to both self-chat and group messages.
+            if (fromMe && isBotMessage) continue;
 
             // Check if this reply answers a pending question via slash command
             const pending = pendingQuestions.get(chatJid);
