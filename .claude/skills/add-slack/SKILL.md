@@ -63,7 +63,12 @@ All tests must pass (including the new Slack tests) and build must be clean befo
 
 ## Phase 3: Setup
 
-### Create Slack App (if needed)
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App** > **From scratch**
+2. Name it (e.g., "NanoClaw") and select your workspace
+3. Go to **OAuth & Permissions** and add Bot Token Scopes:
+   - `chat:write`, `im:write`, `channels:history`, `groups:history`, `im:history`, `channels:read`, `groups:read`, `users:read`, `reactions:write`
+4. Click **Install to Workspace** and copy the **Bot User OAuth Token** (`xoxb-...`)
+5. Go to **Basic Information** and copy the **Signing Secret**
 
 If the user doesn't have a Slack app, share [SLACK_SETUP.md](SLACK_SETUP.md) which has step-by-step instructions with screenshots guidance, troubleshooting, and a token reference table.
 
@@ -73,6 +78,21 @@ Quick summary of what's needed:
 3. Subscribe to bot events: `message.channels`, `message.groups`, `message.im`
 4. Add OAuth scopes: `chat:write`, `channels:history`, `groups:history`, `im:history`, `channels:read`, `groups:read`, `users:read`
 5. Install to workspace and copy the Bot Token (`xoxb-...`)
+
+### Event Subscriptions
+
+8. Go to **Event Subscriptions** and toggle **Enable Events**
+9. Set the **Request URL** to `https://your-domain/webhook/slack` — Slack will send a verification challenge; it must pass before you can save
+10. Under **Subscribe to bot events**, add:
+    - `message.channels`, `message.groups`, `message.im`, `app_mention`
+11. Click **Save Changes**
+
+### Interactivity
+
+12. Go to **Interactivity & Shortcuts** and toggle **Interactivity** on
+13. Set the **Request URL** to the same `https://your-domain/webhook/slack`
+14. Click **Save Changes**
+15. Slack will show a banner asking you to **reinstall the app** — click it to apply the new settings
 
 Wait for the user to provide both tokens.
 
