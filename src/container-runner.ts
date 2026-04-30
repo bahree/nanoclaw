@@ -28,13 +28,13 @@ import {
   type ProviderContainerContribution,
   type VolumeMount,
 } from './providers/provider-container-registry.js';
-import { markContainerRunning, markContainerStopped, sessionDir, writeSessionRouting } from './session-manager.js';
+import { heartbeatPath, markContainerRunning, markContainerStopped, sessionDir, writeSessionRouting } from './session-manager.js';
 import type { AgentGroup, Session } from './types.js';
 
 const onecli = new OneCLI({ url: ONECLI_URL, apiKey: ONECLI_API_KEY });
 
 /** Active containers tracked by session ID. */
-const activeContainers = new Map<string, { process: ChildProcess; containerName: string }>();
+const activeContainers = new Map<string, { process: ChildProcess; containerName: string; agentGroupId: string }>();
 
 /**
  * In-flight wake promises, keyed by session id. Deduplicates concurrent
@@ -125,7 +125,7 @@ async function spawnContainer(session: Session): Promise<void> {
 
   const container = spawn(CONTAINER_RUNTIME_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
-  activeContainers.set(session.id, { process: container, containerName });
+  activeContainers.set(session.id, { process: container, containerName, agentGroupId: agentGroup.id });
   markContainerRunning(session.id);
 
   // Log stderr
@@ -168,6 +168,16 @@ export function killContainer(sessionId: string, reason: string): void {
     stopContainer(entry.containerName);
   } catch {
     entry.process.kill('SIGKILL');
+  }
+
+  // Remove the heartbeat file so the next container spawn starts without a
+  // stale timestamp. Without this, the host sweep would immediately kill the
+  // new container (within 1 second of spawn) because the old heartbeat age
+  // exceeds the absolute ceiling.
+  try {
+    fs.unlinkSync(heartbeatPath(entry.agentGroupId, sessionId));
+  } catch {
+    // File may not exist if the container never wrote one — ignore.
   }
 }
 
