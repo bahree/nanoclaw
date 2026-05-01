@@ -11,6 +11,7 @@
  * so even if this table is stale the host's enforcement is authoritative.
  */
 import { getInboundDb } from './db/connection.js';
+import { getSessionRouting } from './db/session-routing.js';
 
 export interface DestinationEntry {
   name: string;
@@ -95,6 +96,21 @@ function buildDestinationsSection(): string {
   const all = getAllDestinations();
 
   if (all.length === 0) {
+    // Fall back to the session's origin channel from session_routing.
+    // This is the normal case for groups that have no explicit cross-group
+    // destinations — they can always reply to their own channel.
+    const routing = getSessionRouting();
+    if (routing?.channel_type && routing?.platform_id) {
+      return [
+        '## Sending messages',
+        '',
+        'Just write your response directly — it will be delivered to this channel.',
+        '',
+        'To mark something as scratchpad (logged but not sent), wrap it in `<internal>...</internal>`.',
+        '',
+        'To send a message mid-response (e.g., an acknowledgment before a long task), call the `send_message` MCP tool without specifying `to`.',
+      ].join('\n');
+    }
     return [
       '## Sending messages',
       '',
