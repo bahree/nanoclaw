@@ -11,6 +11,7 @@ import path from 'path';
 import { OneCLI } from '@onecli-sh/sdk';
 
 import {
+  CLAUDE_CODE_OAUTH_TOKEN,
   CONTAINER_IMAGE,
   CONTAINER_IMAGE_BASE,
   CONTAINER_INSTALL_LABEL,
@@ -329,13 +330,10 @@ function buildMounts(
     mounts.push({ hostPath: gmailDir, containerPath: '/home/node/.gmail-mcp', readonly: false });
   }
 
-  // Overlay the host's OAuth credentials file so Teams-plan tokens are visible
-  // inside the container and refreshed tokens write back to the host file.
-  // This mount overlays the per-group .claude-shared dir mount above.
-  const hostCredentials = path.join(os.homedir(), '.claude', '.credentials.json');
-  if (fs.existsSync(hostCredentials)) {
-    mounts.push({ hostPath: hostCredentials, containerPath: '/home/node/.claude/.credentials.json', readonly: false });
-  }
+  // Teams plan auth: a long-lived CLAUDE_CODE_OAUTH_TOKEN (issued by
+  // `claude setup-token`) is injected as an env var in buildContainerArgs.
+  // No credentials file is mounted into containers. See container-runner.ts
+  // env-var injection block and project_teams_oauth_fix.md memory note.
 
   // Shared agent-runner source — read-only, same code for all groups.
   const agentRunnerSrc = path.join(projectRoot, 'container', 'agent-runner', 'src');
@@ -493,13 +491,23 @@ async function buildContainerArgs(
   log.info('OneCLI gateway applied', { containerName });
 
   // OneCLI always injects ANTHROPIC_API_KEY=placeholder so the proxy can
-  // substitute the real key. If the vault has no Anthropic secret (e.g. Teams
-  // plan uses OAuth), the placeholder reaches the API and causes a 401. Strip
-  // it so the container authenticates via the OAuth credentials file instead.
+  // substitute the real key. Teams plan has no API key — auth is the
+  // long-lived CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`. Strip the
+  // placeholder so it doesn't shadow the OAuth token.
   const placeholderIdx = args.indexOf('ANTHROPIC_API_KEY=placeholder');
   if (placeholderIdx > 0 && args[placeholderIdx - 1] === '-e') {
     args.splice(placeholderIdx - 1, 2);
-    log.info('Stripped placeholder ANTHROPIC_API_KEY — container will use OAuth credentials', { containerName });
+    log.info('Stripped placeholder ANTHROPIC_API_KEY', { containerName });
+  }
+
+  // Inject the long-lived OAuth token. This replaces the legacy approach of
+  // mounting ~/.claude/.credentials.json into containers. The token is issued
+  // by `claude setup-token` (Teams subscription), does not rotate, and is
+  // safe to share across all agent containers.
+  if (CLAUDE_CODE_OAUTH_TOKEN) {
+    args.push('-e', `CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}`);
+  } else {
+    log.warn('CLAUDE_CODE_OAUTH_TOKEN not set — container will fail to authenticate. Run `claude setup-token` and add to .env.', { containerName });
   }
 
   // Host gateway

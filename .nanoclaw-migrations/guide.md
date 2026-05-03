@@ -1059,6 +1059,81 @@ const senderName = msg.pushName || sender.split('@')[0];
 
 ---
 
+### 23. Teams-plan OAuth token via env var (replaces credentials-file mounting)
+
+**Intent:** User is on the **Claude Teams plan** — no API key. Authentication is a long-lived token issued by `claude setup-token` (Anthropic Console feature, included in Teams). The token is injected into every agent container as the `CLAUDE_CODE_OAUTH_TOKEN` env var. **No** credentials file is mounted into containers.
+
+**Why this design (and what NOT to do):** The Teams subscription has a single OAuth refresh-token chain — refresh tokens are single-use. Earlier customization attempts:
+- Mounted host `~/.claude/.credentials.json` directly into all containers → host + N containers raced on refresh, rotating each other's tokens out → 401s.
+- Per-group seed-once copies → couldn't refresh; tokens went stale at ~17h expiry → 401s.
+- Per-spawn copy from host → required host file to stay fresh; risky if host idle.
+
+The long-lived `setup-token` token does not rotate. Sharing it across host + all containers is safe. This is the canonical Teams-plan answer. Do not reintroduce credentials-file mounting under any approach.
+
+**Files:** `.env`, `src/config.ts`, `src/container-runner.ts`
+
+**How to apply:**
+
+a) Ensure `CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...` is set in `.env`. If missing, run `claude setup-token` interactively on the host and paste the result into `.env`.
+
+b) In `src/config.ts`, add `'CLAUDE_CODE_OAUTH_TOKEN'` to the `readEnvFile([...])` array and export it:
+```typescript
+const envConfig = readEnvFile([
+  // ... existing entries ...
+  'CLAUDE_CODE_OAUTH_TOKEN',
+]);
+export const CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN || envConfig.CLAUDE_CODE_OAUTH_TOKEN || '';
+```
+
+c) In `src/container-runner.ts`, import the constant alongside the other config imports:
+```typescript
+import {
+  CLAUDE_CODE_OAUTH_TOKEN,
+  // ... existing imports ...
+} from './config.js';
+```
+
+d) In `src/container-runner.ts buildContainerArgs()`, **after** the `onecli.applyContainerConfig(...)` call, strip the OneCLI placeholder API key and inject the OAuth token:
+```typescript
+// OneCLI always injects ANTHROPIC_API_KEY=placeholder so the proxy can
+// substitute the real key. Teams plan has no real API key in the vault, so
+// the placeholder reaches the API and 401s. Strip it.
+const placeholderIdx = args.indexOf('ANTHROPIC_API_KEY=placeholder');
+if (placeholderIdx > 0 && args[placeholderIdx - 1] === '-e') {
+  args.splice(placeholderIdx - 1, 2);
+  log.info('Stripped placeholder ANTHROPIC_API_KEY', { containerName });
+}
+
+// Inject the long-lived OAuth token.
+if (CLAUDE_CODE_OAUTH_TOKEN) {
+  args.push('-e', `CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}`);
+} else {
+  log.warn('CLAUDE_CODE_OAUTH_TOKEN not set — container will fail to authenticate. Run `claude setup-token` and add to .env.', { containerName });
+}
+```
+
+e) In `src/container-runner.ts buildMounts()`, **do NOT** add a mount for the host `~/.claude/.credentials.json`, and **do NOT** copy/seed any credentials file into per-group `.claude-shared/`. The per-group `.claude-shared/` directory mount at `/home/node/.claude` is fine to keep (carries Claude state, settings, skill symlinks); just no credentials file inside it.
+
+f) After applying, remove any leftover stale per-group credentials files (from older designs):
+```bash
+rm -f /home/amit/nanoclaw/data/v2-sessions/*/.claude-shared/.credentials.json
+```
+
+g) Build and restart:
+```bash
+pnpm run build
+systemctl --user restart nanoclaw
+```
+
+**Validation:** Send a test message to any group. Container spawns, agent responds. Check `logs/nanoclaw.log` for "OneCLI gateway applied" but no "Stripped placeholder" warnings about missing token. The agent should never emit "Not logged in · Please run /login" again.
+
+**When this DOES break:**
+- Token revoked from console.anthropic.com → run `claude setup-token` again, update `.env`, restart.
+- `.env` lost or `CLAUDE_CODE_OAUTH_TOKEN` missing → host logs warn, containers 401.
+- OneCLI vault gains a real Anthropic API key (e.g. user upgrades to paid API access) → the strip-placeholder block becomes unnecessary but harmless. The API key takes precedence.
+
+---
+
 ## Post-Migration Steps
 
 1. Run `pnpm install && pnpm run build` in the worktree to validate
