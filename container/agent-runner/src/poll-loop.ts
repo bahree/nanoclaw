@@ -2,6 +2,7 @@ import { findByName, getAllDestinations, type DestinationEntry } from './destina
 import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
 import { writeMessageOut } from './db/messages-out.js';
 import { touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
+import { getSessionRouting } from './db/session-routing.js';
 import {
   addSessionUsage,
   clearContinuation,
@@ -299,6 +300,20 @@ async function processQuery(
       log(`Pushing ${newMessages.length} follow-up message(s) into active query`);
       query.push(prompt);
 
+      // If the original routing was incomplete (e.g. the query started from a
+      // scheduled task with NULL platform_id/channel_type), upgrade it from
+      // the first follow-up that does have channel info. Without this, the
+      // agent's reply to a chat question that arrived mid-task would have no
+      // routing context and get dropped by dispatchResultText.
+      if (!routing.platformId || !routing.channelType) {
+        const withRouting = newMessages.find((m) => m.platform_id && m.channel_type);
+        if (withRouting) {
+          routing.platformId = withRouting.platform_id;
+          routing.channelType = withRouting.channel_type;
+          if (!routing.threadId) routing.threadId = withRouting.thread_id ?? null;
+        }
+      }
+
       markCompleted(newIds);
     }
   }, ACTIVE_POLL_INTERVAL_MS);
@@ -405,15 +420,27 @@ function dispatchResultText(text: string, routing: RoutingContext): void {
   // the session's originating channel (from session_routing) if available,
   // otherwise fall back to the single destination.
   if (sent === 0 && scratchpad) {
-    if (routing.channelType && routing.platformId) {
-      // Reply to the channel/thread the message came from
+    // Prefer the per-message routing (correct sender thread); if that's
+    // incomplete (e.g. the turn started from a scheduled task with no
+    // channel info, and no chat follow-up upgraded it), fall back to the
+    // session's default routing — which the host writes on every wake.
+    let platformId = routing.platformId;
+    let channelType = routing.channelType;
+    let threadId = routing.threadId;
+    if (!platformId || !channelType) {
+      const sr = getSessionRouting();
+      platformId = platformId ?? sr.platform_id;
+      channelType = channelType ?? sr.channel_type;
+      threadId = threadId ?? sr.thread_id;
+    }
+    if (channelType && platformId) {
       writeMessageOut({
         id: generateId(),
         in_reply_to: routing.inReplyTo,
         kind: 'chat',
-        platform_id: routing.platformId,
-        channel_type: routing.channelType,
-        thread_id: routing.threadId,
+        platform_id: platformId,
+        channel_type: channelType,
+        thread_id: threadId,
         content: JSON.stringify({ text: scratchpad }),
       });
       return;

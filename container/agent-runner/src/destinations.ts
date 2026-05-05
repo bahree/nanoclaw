@@ -141,8 +141,12 @@ function buildDestinationsSection(): string {
   lines.push('');
   lines.push('To send a message, wrap it in a `<message to="name">...</message>` block.');
   lines.push('You can include multiple `<message>` blocks in one response to send to multiple destinations.');
-  lines.push('Text outside of `<message>` blocks is scratchpad — logged but not sent anywhere.');
-  lines.push('Use `<internal>...</internal>` to make scratchpad intent explicit.');
+  lines.push('');
+  lines.push(
+    'If you reply with plain text and forget the `<message>` wrapper, it falls back to the channel that triggered this turn — so a casual reply still reaches the user. But for any message intended for a *different* destination than the trigger, you MUST use the explicit `<message to="...">` wrapper, otherwise it goes to the wrong place.',
+  );
+  lines.push('');
+  lines.push('Use `<internal>...</internal>` to mark text as scratchpad (not sent anywhere).');
   lines.push('');
   lines.push(
     'To send a message mid-response (e.g., an acknowledgment before a long task), call the `send_message` MCP tool with the `to` parameter set to a destination name.',
