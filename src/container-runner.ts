@@ -507,7 +507,10 @@ async function buildContainerArgs(
   if (CLAUDE_CODE_OAUTH_TOKEN) {
     args.push('-e', `CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}`);
   } else {
-    log.warn('CLAUDE_CODE_OAUTH_TOKEN not set — container will fail to authenticate. Run `claude setup-token` and add to .env.', { containerName });
+    log.warn(
+      'CLAUDE_CODE_OAUTH_TOKEN not set — container will fail to authenticate. Run `claude setup-token` and add to .env.',
+      { containerName },
+    );
   }
 
   // Host gateway
