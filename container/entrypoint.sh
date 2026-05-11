@@ -11,8 +11,6 @@
 
 set -e
 
-mnemon setup --target claude-code --yes --global >/dev/stderr 2>&1
-
 cat > /tmp/input.json
 
 exec bun run /app/src/index.ts < /tmp/input.json
