@@ -466,6 +466,24 @@ function dispatchResultText(text: string, routing: RoutingContext): void {
 
   const scratchpad = stripInternalTags(scratchpadParts.join(''));
 
+  // Fallback for bare plain-text replies: the agent forgot the <message to="…">
+  // wrapper but the turn has a known trigger channel. Send the scratchpad text
+  // back to that channel rather than dropping it. Without this, single-
+  // destination self-chat replies disappear into the scratchpad warning below.
+  if (sent === 0 && scratchpad && routing.platformId && routing.channelType) {
+    const destRouting = resolveDestinationThread(routing.channelType, routing.platformId);
+    writeMessageOut({
+      id: generateId(),
+      in_reply_to: destRouting?.inReplyTo ?? routing.inReplyTo,
+      kind: 'chat',
+      platform_id: routing.platformId,
+      channel_type: routing.channelType,
+      thread_id: destRouting?.threadId ?? routing.threadId ?? null,
+      content: JSON.stringify({ text: scratchpad }),
+    });
+    return;
+  }
+
   if (scratchpad) {
     log(`[scratchpad] ${scratchpad.slice(0, 500)}${scratchpad.length > 500 ? '…' : ''}`);
   }
