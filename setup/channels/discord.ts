@@ -27,11 +27,13 @@ import * as p from '@clack/prompts';
 import k from 'kleur';
 
 import * as setupLog from '../logs.js';
+import { BACK_TO_CHANNEL_SELECTION, type ChannelFlowResult } from '../lib/back-nav.js';
 import { brightSelect } from '../lib/bright-select.js';
-import { confirmThenOpen } from '../lib/browser.js';
+import { confirmThenOpen, formatNoteLink } from '../lib/browser.js';
 import { askOperatorRole } from '../lib/role-prompt.js';
 import { ensureAnswer, fail, runQuietChild } from '../lib/runner.js';
-import { accentGreen, brandBody, note } from '../lib/theme.js';
+import { readEnvKey } from '../environment.js';
+import { accentGreen, brandBody, fmtDuration, note } from '../lib/theme.js';
 
 const DEFAULT_AGENT_NAME = 'Nano';
 const DISCORD_API = 'https://discord.com/api/v10';
@@ -47,8 +49,10 @@ interface AppInfo {
   owner: { id: string; username: string } | null;
 }
 
-export async function runDiscordChannel(displayName: string): Promise<void> {
-  const hasBot = await askHasBotToken();
+export async function runDiscordChannel(displayName: string): Promise<ChannelFlowResult> {
+  const choice = await askHasBotToken();
+  if (choice === 'back') return BACK_TO_CHANNEL_SELECTION;
+  const hasBot = choice === 'yes';
   if (!hasBot) {
     await walkThroughBotCreation();
   }
@@ -141,17 +145,18 @@ export async function runDiscordChannel(displayName: string): Promise<void> {
   }
 }
 
-async function askHasBotToken(): Promise<boolean> {
+async function askHasBotToken(): Promise<'yes' | 'no' | 'back'> {
   const answer = ensureAnswer(
     await brightSelect({
       message: 'Do you already have a Discord bot?',
       options: [
         { value: 'yes', label: 'Yes, I have a bot token ready' },
         { value: 'no', label: "No, walk me through creating one" },
+        { value: 'back', label: '← Back to channel selection' },
       ],
     }),
   );
-  return answer === 'yes';
+  return answer as 'yes' | 'no' | 'back';
 }
 
 async function walkThroughBotCreation(): Promise<void> {
@@ -164,9 +169,8 @@ async function walkThroughBotCreation(): Promise<void> {
       '  2. In the "Bot" tab, click "Reset Token" and copy the token',
       '  3. On the same tab, enable "Message Content Intent"',
       '     (under Privileged Gateway Intents)',
-      '',
-      k.dim(url),
-    ].join('\n'),
+      formatNoteLink(url),
+    ].filter((line): line is string => line !== null).join('\n'),
     'Create a Discord bot',
   );
   await confirmThenOpen(url, 'Press Enter to open the Developer Portal');
@@ -224,9 +228,8 @@ async function walkThroughServerCreation(): Promise<void> {
       '  1. In Discord, click the "+" at the bottom of the server list',
       '  2. Choose "Create My Own" → "For me and my friends"',
       '  3. Give it any name (e.g. "NanoClaw")',
-      '',
-      k.dim(url),
-    ].join('\n'),
+      formatNoteLink(url),
+    ].filter((line): line is string => line !== null).join('\n'),
     'Create a Discord server',
   );
   await confirmThenOpen(url, 'Press Enter to open Discord');
@@ -240,7 +243,7 @@ async function walkThroughServerCreation(): Promise<void> {
 }
 
 async function collectDiscordToken(): Promise<string> {
-  const existing = process.env.DISCORD_BOT_TOKEN?.trim();
+  const existing = readEnvKey('DISCORD_BOT_TOKEN');
   if (existing && /^[A-Za-z0-9._-]{50,}$/.test(existing)) {
     const reuse = ensureAnswer(await p.confirm({
       message: `Found an existing Discord bot token (${existing.slice(0, 10)}…). Use it?`,
@@ -289,9 +292,8 @@ async function validateDiscordToken(token: string): Promise<string> {
       username?: string;
       message?: string;
     };
-    const elapsedS = Math.round((Date.now() - start) / 1000);
     if (res.ok && data.username) {
-      s.stop(`Found your bot: @${data.username}. ${k.dim(`(${elapsedS}s)`)}`);
+      s.stop(`Found your bot: @${data.username}. ${k.dim(`(${fmtDuration(Date.now() - start)})`)}`);
       setupLog.step('discord-validate', 'success', Date.now() - start, {
         BOT_USERNAME: data.username,
         BOT_ID: data.id ?? '',
@@ -309,8 +311,7 @@ async function validateDiscordToken(token: string): Promise<string> {
       'Copy the token again from the Developer Portal and retry setup.',
     );
   } catch (err) {
-    const elapsedS = Math.round((Date.now() - start) / 1000);
-    s.stop(`Couldn't reach Discord. ${k.dim(`(${elapsedS}s)`)}`, 1);
+    s.stop(`Couldn't reach Discord. ${k.dim(`(${fmtDuration(Date.now() - start)})`)}`, 1);
     const message = err instanceof Error ? err.message : String(err);
     setupLog.step('discord-validate', 'failed', Date.now() - start, {
       ERROR: message,
@@ -338,7 +339,6 @@ async function fetchApplicationInfo(token: string): Promise<AppInfo> {
       team?: unknown;
       message?: string;
     };
-    const elapsedS = Math.round((Date.now() - start) / 1000);
     if (!res.ok || !data.id || !data.verify_key) {
       const reason = data.message ?? `HTTP ${res.status}`;
       s.stop(`Couldn't read application info: ${reason}`, 1);
@@ -351,7 +351,7 @@ async function fetchApplicationInfo(token: string): Promise<AppInfo> {
         'Re-run setup. If it keeps failing, check the bot token has the right scopes.',
       );
     }
-    s.stop(`Got your application details. ${k.dim(`(${elapsedS}s)`)}`);
+    s.stop(`Got your application details. ${k.dim(`(${fmtDuration(Date.now() - start)})`)}`);
     // owner is populated for solo applications; team-owned apps return a
     // team object instead and we'll fall back to a manual user-id prompt.
     const owner =
@@ -369,8 +369,7 @@ async function fetchApplicationInfo(token: string): Promise<AppInfo> {
       owner,
     };
   } catch (err) {
-    const elapsedS = Math.round((Date.now() - start) / 1000);
-    s.stop(`Couldn't reach Discord. ${k.dim(`(${elapsedS}s)`)}`, 1);
+    s.stop(`Couldn't reach Discord. ${k.dim(`(${fmtDuration(Date.now() - start)})`)}`, 1);
     const message = err instanceof Error ? err.message : String(err);
     setupLog.step('discord-app-info', 'failed', Date.now() - start, {
       ERROR: message,
@@ -450,9 +449,8 @@ async function promptInviteBot(
       '',
       '  1. Pick any server you\'re in (a personal one is fine)',
       '  2. Click "Authorize"',
-      '',
-      k.dim(url),
-    ].join('\n'),
+      formatNoteLink(url),
+    ].filter((line): line is string => line !== null).join('\n'),
     'Add bot to a server',
   );
   await confirmThenOpen(url, 'Press Enter to open the invite page');
@@ -479,7 +477,6 @@ async function openDmChannel(token: string, userId: string): Promise<string> {
       body: JSON.stringify({ recipient_id: userId }),
     });
     const data = (await res.json()) as { id?: string; message?: string };
-    const elapsedS = Math.round((Date.now() - start) / 1000);
     if (!res.ok || !data.id) {
       const reason = data.message ?? `HTTP ${res.status}`;
       s.stop(`Couldn't open a DM channel: ${reason}`, 1);
@@ -492,14 +489,13 @@ async function openDmChannel(token: string, userId: string): Promise<string> {
         'Make sure the bot is in a server you\'re also in, then retry setup.',
       );
     }
-    s.stop(`DM channel ready. ${k.dim(`(${elapsedS}s)`)}`);
+    s.stop(`DM channel ready. ${k.dim(`(${fmtDuration(Date.now() - start)})`)}`);
     setupLog.step('discord-open-dm', 'success', Date.now() - start, {
       DM_CHANNEL_ID: data.id,
     });
     return data.id;
   } catch (err) {
-    const elapsedS = Math.round((Date.now() - start) / 1000);
-    s.stop(`Couldn't reach Discord. ${k.dim(`(${elapsedS}s)`)}`, 1);
+    s.stop(`Couldn't reach Discord. ${k.dim(`(${fmtDuration(Date.now() - start)})`)}`, 1);
     const message = err instanceof Error ? err.message : String(err);
     setupLog.step('discord-open-dm', 'failed', Date.now() - start, {
       ERROR: message,

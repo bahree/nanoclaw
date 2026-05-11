@@ -28,7 +28,7 @@ import * as p from '@clack/prompts';
 import k from 'kleur';
 
 import { ensureAnswer } from './runner.js';
-import { brandBody, fitToWidth, note } from './theme.js';
+import { brandBody, fitToWidth, fmtDuration, note } from './theme.js';
 
 export interface AssistContext {
   stepName: string;
@@ -43,7 +43,7 @@ export interface AssistContext {
  * rather than us stuffing contents into the prompt. Keys are step names as
  * they appear in fail() calls; values are repo-relative paths.
  */
-const STEP_FILES: Record<string, string[]> = {
+export const STEP_FILES: Record<string, string[]> = {
   bootstrap: ['setup.sh', 'setup/install-node.sh', 'nanoclaw.sh'],
   environment: ['setup/environment.ts'],
   container: [
@@ -81,7 +81,7 @@ const STEP_FILES: Record<string, string[]> = {
   ],
 };
 
-const BIG_PICTURE_FILES = ['README.md', 'setup/auto.ts'];
+export const BIG_PICTURE_FILES = ['README.md', 'setup/auto.ts'];
 
 /**
  * Returns `true` if the user ran a Claude-suggested fix command; callers
@@ -150,7 +150,7 @@ function isClaudeAuthenticated(): boolean {
   }
 }
 
-async function ensureClaudeReady(projectRoot: string): Promise<boolean> {
+export async function ensureClaudeReady(projectRoot: string): Promise<boolean> {
   if (!isClaudeInstalled()) {
     const install = ensureAnswer(
       await p.confirm({
@@ -295,9 +295,8 @@ async function queryClaudeUnderSpinner(
     // Move cursor back to the start of the block (WINDOW_SIZE + 1 = header + window).
     out.write(`\x1b[${WINDOW_SIZE + 1}A`);
 
-    const elapsed = Math.round((Date.now() - start) / 1000);
     const icon = SPINNER_FRAMES[frameIdx % SPINNER_FRAMES.length];
-    const suffix = ` (${elapsed}s)`;
+    const suffix = ` (${fmtDuration(Date.now() - start)})`;
     const header = fitToWidth('Asking Claude to diagnose…', suffix);
     out.write(`\x1b[2K${k.cyan(icon)}  ${header}${k.dim(suffix)}\n`);
 
@@ -355,8 +354,7 @@ async function queryClaudeUnderSpinner(
       clearBlock();
       out.write(SHOW_CURSOR);
       process.off('exit', restoreCursorOnExit);
-      const elapsed = Math.round((Date.now() - start) / 1000);
-      const suffix = ` (${elapsed}s)`;
+      const suffix = ` (${fmtDuration(Date.now() - start)})`;
       if (kind === 'ok') {
         p.log.success(`${brandBody(fitToWidth('Claude replied.', suffix))}${k.dim(suffix)}`);
         resolve(payload);
