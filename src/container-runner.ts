@@ -51,6 +51,42 @@ import type { AgentGroup, Session } from './types.js';
 
 const onecli = new OneCLI({ url: ONECLI_URL, apiKey: ONECLI_API_KEY });
 
+/**
+ * Resolve the DNS servers to pass into agent containers. Override with
+ * NANOCLAW_CONTAINER_DNS=<ip>[,<ip>...]; otherwise auto-detect the host's
+ * default-route gateway (which on this network is the local router /
+ * Firewalla and applies its own upstream + filtering).
+ *
+ * Memoized — the gateway and override don't change at runtime.
+ */
+let _containerDnsCache: string[] | null = null;
+function resolveContainerDns(): string[] {
+  if (_containerDnsCache) return _containerDnsCache;
+  const override = process.env.NANOCLAW_CONTAINER_DNS?.trim();
+  if (override) {
+    _containerDnsCache = override
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    log.info('Container DNS override', { dns: _containerDnsCache });
+    return _containerDnsCache;
+  }
+  try {
+    const out = execSync('ip route show default', { encoding: 'utf-8', timeout: 2000 });
+    const match = out.match(/default\s+via\s+(\d+\.\d+\.\d+\.\d+)/);
+    if (match) {
+      _containerDnsCache = [match[1]];
+      log.info('Container DNS auto-detected from default gateway', { dns: _containerDnsCache });
+      return _containerDnsCache;
+    }
+  } catch (err) {
+    log.warn('Failed to detect default gateway for container DNS', { err });
+  }
+  _containerDnsCache = [];
+  log.warn('No container DNS resolved; falling back to Docker default (likely 8.8.8.8)');
+  return _containerDnsCache;
+}
+
 /** Active containers tracked by session ID. */
 const activeContainers = new Map<string, { process: ChildProcess; containerName: string; agentGroupId: string }>();
 
@@ -459,6 +495,17 @@ async function buildContainerArgs(
   agentIdentifier?: string,
 ): Promise<string[]> {
   const args: string[] = ['run', '--rm', '--name', containerName, '--label', CONTAINER_INSTALL_LABEL];
+
+  // DNS — route container lookups through the configured resolver instead of
+  // Docker's default (8.8.8.8/8.8.4.4), which kicks in when the host uses a
+  // loopback resolver (systemd-resolved at 127.0.0.53). Defaulting to the
+  // host's default-route gateway keeps all DNS on the local network filter
+  // (e.g. Firewalla → NextDNS) rather than bypassing it to Google public DNS.
+  // Override with NANOCLAW_CONTAINER_DNS=<ip>[,<ip>...] in .env.
+  const containerDns = resolveContainerDns();
+  for (const dns of containerDns) {
+    args.push('--dns', dns);
+  }
 
   // Environment — only vars read by code we don't own.
   // Everything NanoClaw-specific is in container.json (read by runner at startup).
