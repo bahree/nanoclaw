@@ -2,6 +2,7 @@ import { findByName, getAllDestinations, type DestinationEntry } from './destina
 import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
 import { writeMessageOut } from './db/messages-out.js';
 import { getInboundDb, touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
+import { getSessionRouting } from './db/session-routing.js';
 import { clearContinuation, migrateLegacyContinuation, setContinuation } from './db/session-state.js';
 import { clearCurrentInReplyTo, setCurrentInReplyTo } from './current-batch.js';
 import {
@@ -467,21 +468,33 @@ function dispatchResultText(text: string, routing: RoutingContext): void {
   const scratchpad = stripInternalTags(scratchpadParts.join(''));
 
   // Fallback for bare plain-text replies: the agent forgot the <message to="…">
-  // wrapper but the turn has a known trigger channel. Send the scratchpad text
-  // back to that channel rather than dropping it. Without this, single-
-  // destination self-chat replies disappear into the scratchpad warning below.
-  if (sent === 0 && scratchpad && routing.platformId && routing.channelType) {
-    const destRouting = resolveDestinationThread(routing.channelType, routing.platformId);
-    writeMessageOut({
-      id: generateId(),
-      in_reply_to: destRouting?.inReplyTo ?? routing.inReplyTo,
-      kind: 'chat',
-      platform_id: routing.platformId,
-      channel_type: routing.channelType,
-      thread_id: destRouting?.threadId ?? routing.threadId ?? null,
-      content: JSON.stringify({ text: scratchpad }),
-    });
-    return;
+  // wrapper. Use message-level routing when present; otherwise fall back to
+  // the session's default routing (host writes this on every wake). Without
+  // the session-level fallback, scheduled-task replies (which have no
+  // chat-message-level routing) silently vanish into the scratchpad warning.
+  if (sent === 0 && scratchpad) {
+    let platformId = routing.platformId;
+    let channelType = routing.channelType;
+    let threadId = routing.threadId;
+    if (!platformId || !channelType) {
+      const sr = getSessionRouting();
+      platformId = platformId ?? sr.platform_id;
+      channelType = channelType ?? sr.channel_type;
+      threadId = threadId ?? sr.thread_id;
+    }
+    if (platformId && channelType) {
+      const destRouting = resolveDestinationThread(channelType, platformId);
+      writeMessageOut({
+        id: generateId(),
+        in_reply_to: destRouting?.inReplyTo ?? routing.inReplyTo,
+        kind: 'chat',
+        platform_id: platformId,
+        channel_type: channelType,
+        thread_id: destRouting?.threadId ?? threadId ?? null,
+        content: JSON.stringify({ text: scratchpad }),
+      });
+      return;
+    }
   }
 
   if (scratchpad) {
