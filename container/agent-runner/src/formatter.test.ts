@@ -60,6 +60,19 @@ describe('context timezone header', () => {
     expect(ctxIdx).toBeGreaterThanOrEqual(0);
     expect(msgsIdx).toBeGreaterThan(ctxIdx);
   });
+
+  it('includes today="YYYY-MM-DD" in the user timezone', () => {
+    const result = formatMessages([]);
+    const match = result.match(/today="(\d{4}-\d{2}-\d{2})"/);
+    expect(match).not.toBeNull();
+    const expected = new Intl.DateTimeFormat('en-CA', {
+      timeZone: TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    expect(match![1]).toBe(expected);
+  });
 });
 
 describe('timestamp formatting', () => {
