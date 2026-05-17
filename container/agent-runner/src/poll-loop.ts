@@ -486,7 +486,7 @@ function dispatchResultText(text: string, routing: RoutingContext): { sent: numb
         thread_id: destRouting?.threadId ?? threadId ?? null,
         content: JSON.stringify({ text: scratchpad }),
       });
-      return;
+      return { sent: 1, hasUnwrapped: false };
     }
   }
 
