@@ -54,6 +54,13 @@ else
   check "Gmail MCP credentials mount" MISSING
 fi
 
+# 5. WhatsApp shared-identity LID-rewrite guard
+if grep -q "ASSISTANT_HAS_OWN_NUMBER && botLidUser" src/channels/whatsapp.ts; then
+  check "WhatsApp shared-identity LID-rewrite guard" OK
+else
+  check "WhatsApp shared-identity LID-rewrite guard" MISSING
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "All local patches present."
