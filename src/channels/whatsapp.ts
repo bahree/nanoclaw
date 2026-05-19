@@ -520,8 +520,12 @@ registerChannelAdapter('whatsapp', {
               normalized.videoMessage?.caption ||
               '';
 
-            // Normalize bot LID mention → assistant name for trigger matching
-            if (botLidUser && content.includes(`@${botLidUser}`)) {
+            // Normalize bot LID mention → assistant name for trigger matching.
+            // Only safe when the bot has its own dedicated WhatsApp number — in
+            // shared-identity mode (ASSISTANT_HAS_OWN_NUMBER=false) the bot's
+            // LID is the operator's own LID, so tagging the operator in a group
+            // would rewrite to @${ASSISTANT_NAME} and fire the engage pattern.
+            if (ASSISTANT_HAS_OWN_NUMBER && botLidUser && content.includes(`@${botLidUser}`)) {
               content = content.replace(`@${botLidUser}`, `@${ASSISTANT_NAME}`);
             }
 
