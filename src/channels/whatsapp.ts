@@ -392,12 +392,20 @@ registerChannelAdapter('whatsapp', {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr && !phoneNumber) {
-          // QR code auth — print to terminal
+          // QR code auth — print to terminal + write PNG/string to disk for
+          // SSH sessions where the ANSI block QR renders garbled.
           (async () => {
             try {
               const QRCode = await import('qrcode');
               const qrText = await QRCode.toString(qr, { type: 'terminal' });
               log.info('WhatsApp QR code — scan with WhatsApp > Linked Devices:\n' + qrText);
+              try {
+                await QRCode.toFile('store/wa-qr.png', qr, { width: 512 });
+                fs.writeFileSync('store/wa-qr.txt', qr);
+                log.info('WhatsApp QR also saved', { png: 'store/wa-qr.png', raw: 'store/wa-qr.txt' });
+              } catch (err) {
+                log.warn('Failed to write QR artifacts', { err });
+              }
             } catch {
               log.info('WhatsApp QR code (raw)', { qr });
             }
