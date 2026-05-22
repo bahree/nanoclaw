@@ -59,9 +59,7 @@ export function backfillDestinations(): void {
   for (const row of rows) {
     if (existing.get(row.agent_group_id, 'channel', row.messaging_group_id)) continue;
 
-    const takenNames = new Set(
-      (taken.all(row.agent_group_id) as { local_name: string }[]).map((r) => r.local_name),
-    );
+    const takenNames = new Set((taken.all(row.agent_group_id) as { local_name: string }[]).map((r) => r.local_name));
     const base = normalizeName(row.name || `${row.channel_type}-${row.messaging_group_id.slice(0, 8)}`);
     let localName = base;
     let suffix = 2;
