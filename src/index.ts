@@ -7,6 +7,7 @@
 import path from 'path';
 
 import { backfillContainerConfigs } from './backfill-container-configs.js';
+import { backfillDestinations } from './backfill-destinations.js';
 import { DATA_DIR } from './config.js';
 import { enforceStartupBackoff, resetCircuitBreaker } from './circuit-breaker.js';
 import { migrateGroupsToClaudeLocal } from './claude-md-compose.js';
@@ -78,6 +79,12 @@ async function main(): Promise<void> {
   // 1b. Backfill container_configs from legacy container.json files.
   // Idempotent — skips groups that already have a config row.
   backfillContainerConfigs();
+
+  // 1b'. Backfill agent_destinations for wirings created via raw SQL
+  // (e.g. v1→v2 migration). Idempotent. Without this, the agent has no
+  // destination names and wraps output in `<message to="current
+  // conversation">…</message>`, which the router drops as unknown.
+  backfillDestinations();
 
   // 1c. One-time filesystem cutover — idempotent, no-op after first run.
   migrateGroupsToClaudeLocal();

@@ -61,6 +61,14 @@ else
   check "WhatsApp shared-identity LID-rewrite guard" MISSING
 fi
 
+# 6. agent_destinations startup backfill
+if grep -q "backfillDestinations" src/index.ts && \
+   test -f src/backfill-destinations.ts; then
+  check "Destinations startup backfill" OK
+else
+  check "Destinations startup backfill" MISSING
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "All local patches present."
